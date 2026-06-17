@@ -68,6 +68,14 @@ uint8_t *bus_get_program_ram(void);
 const uint8_t *bus_get_program_rom(uint32_t *size_out);
 const uint8_t *bus_get_data_rom(uint32_t *size_out);
 
+/* --- ROM loading (copy a flat binary image into a bus region) --- */
+/* Program ROM:    0x00000000 (i960 program + boot, typ. 2MB) */
+/* Data ROM:       0x02000000 (3D/data, up to 32MB) */
+/* Extra data ROM: 0x06000000 (up to 16MB) */
+void bus_load_program_rom(const uint8_t *data, uint32_t size);
+void bus_load_data_rom(const uint8_t *data, uint32_t size);
+void bus_load_extra_data(const uint8_t *data, uint32_t size);
+
 /* --- Buffer RAM access --- */
 /* Buffer RAM is 128KB at 0x00900000-0x0091FFFF */
 uint8_t *bus_get_buffer_ram(void);

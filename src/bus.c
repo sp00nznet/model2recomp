@@ -594,6 +594,40 @@ const uint8_t *bus_get_program_rom(uint32_t *size_out)
     return s_program_rom;
 }
 
+/* ---- ROM loading ---- */
+
+static uint8_t *rom_dup(const uint8_t *data, uint32_t size)
+{
+    if (!data || size == 0) return NULL;
+    uint8_t *buf = (uint8_t *)malloc(size);
+    if (buf) memcpy(buf, data, size);
+    return buf;
+}
+
+void bus_load_program_rom(const uint8_t *data, uint32_t size)
+{
+    free(s_program_rom);
+    s_program_rom = rom_dup(data, size);
+    s_program_rom_size = s_program_rom ? size : 0;
+    printf("[bus] Program ROM loaded: %u bytes @ 0x00000000\n", s_program_rom_size);
+}
+
+void bus_load_data_rom(const uint8_t *data, uint32_t size)
+{
+    free(s_data_rom);
+    s_data_rom = rom_dup(data, size);
+    s_data_rom_size = s_data_rom ? size : 0;
+    printf("[bus] Data ROM loaded: %u bytes @ 0x02000000\n", s_data_rom_size);
+}
+
+void bus_load_extra_data(const uint8_t *data, uint32_t size)
+{
+    free(s_extra_data);
+    s_extra_data = rom_dup(data, size);
+    s_extra_data_size = s_extra_data ? size : 0;
+    printf("[bus] Extra data loaded: %u bytes @ 0x06000000\n", s_extra_data_size);
+}
+
 const uint8_t *bus_get_data_rom(uint32_t *size_out)
 {
     if (size_out) *size_out = s_data_rom_size;

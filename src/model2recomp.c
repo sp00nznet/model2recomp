@@ -15,6 +15,7 @@
 #include "model2recomp/timer.h"
 #include "model2recomp/eeprom.h"
 #include "model2recomp/platform.h"
+#include <SDL.h>   /* SDL_SCANCODE_* used by the input polling below */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -66,23 +67,67 @@ bool model2recomp_init(const char *window_title, int scale, model2_variant_t var
     return true;
 }
 
+/* Read an entire file into a freshly malloc'd buffer. Caller frees.
+ * Returns NULL (and *size_out = 0) if the file can't be opened. */
+static uint8_t *read_whole_file(const char *path, uint32_t *size_out)
+{
+    *size_out = 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (len <= 0) { fclose(f); return NULL; }
+
+    uint8_t *buf = (uint8_t *)malloc((size_t)len);
+    if (!buf) { fclose(f); return NULL; }
+
+    size_t got = fread(buf, 1, (size_t)len, f);
+    fclose(f);
+    if (got != (size_t)len) { free(buf); return NULL; }
+
+    *size_out = (uint32_t)len;
+    return buf;
+}
+
+/* Load one flat binary <rom_dir>/<name> into a bus region via loader().
+ * required: if true, a missing/unreadable file makes the whole load fail. */
+static bool load_region(const char *rom_dir, const char *name,
+                        void (*loader)(const uint8_t *, uint32_t), bool required)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/%s", rom_dir, name);
+
+    uint32_t size = 0;
+    uint8_t *data = read_whole_file(path, &size);
+    if (!data) {
+        fprintf(stderr, "[model2recomp] %s ROM file: %s\n",
+                required ? "MISSING REQUIRED" : "optional (skipped)", path);
+        return !required;
+    }
+
+    loader(data, size);
+    free(data);
+    return true;
+}
+
 bool model2recomp_load_rom(const char *rom_dir)
 {
     printf("[model2recomp] Loading ROMs from: %s\n", rom_dir);
-    /* TODO: Implement ROM loading from MAME-format directory
-     *
-     * For Virtua Cop (original Model 2), expected files:
-     *   Program ROM:  epr-17166?.ic? (4x 512KB = 2MB)
-     *   Data ROM:     mpr-17164.ic? (8MB data)
-     *   Texture ROM:  mpr-17148.ic? (texture data)
-     *   Sound ROM:    epr-17168.ic? (68000 program)
-     *   Sample ROM:   mpr-17149.ic? (MultiPCM samples)
-     *   Copro ROM:    internal TGP microcode
-     *
-     * ROM files should be loaded into the appropriate bus memory regions.
-     */
-    printf("[model2recomp] ROM loading not yet implemented\n");
-    return true; /* Don't fail - allow stub operation */
+
+    /* The recompiled i960 code reads constants and tables out of program ROM,
+     * so it must be present. Data/extra ROMs feed the (stubbed) renderer and
+     * are optional for a boot test. These flat images are produced by
+     * tools/rom_loader.py. */
+    if (!load_region(rom_dir, "program.bin", bus_load_program_rom, true))
+        return false;
+
+    load_region(rom_dir, "data.bin",     bus_load_data_rom,   false);
+    load_region(rom_dir, "polygons.bin", bus_load_extra_data, false);
+
+    printf("[model2recomp] ROM loading complete\n");
+    return true;
 }
 
 bool model2recomp_begin_frame(void)
