@@ -24,6 +24,10 @@ static uint8_t s_lightgun_mux = 0;
 /* DPRAM */
 static uint8_t s_dpram[0x1000];
 
+/* I/O board DPRAM registers */
+#define DPRAM_CMD    0x40   /* command; board zeroes it when the command completes */
+#define DPRAM_STATUS 0x42   /* board status, bit 6 = ready */
+
 /* Lamp output */
 static uint8_t s_lamp_state = 0;
 
@@ -32,6 +36,10 @@ void io_init(void)
     memset(s_input_ports, 0xFF, sizeof(s_input_ports));
     memset(&s_lightgun, 0, sizeof(s_lightgun));
     memset(s_dpram, 0xFF, sizeof(s_dpram));
+    /* Board state: command register idle, status "ready" (bit 6). Virtua Cop's
+     * NVRAM-restore path (0x2D248) waits on both before issuing command 3. */
+    s_dpram[DPRAM_CMD] = 0x00;
+    s_dpram[DPRAM_STATUS] = 0x40;
     s_lightgun_mux = 0;
     s_lamp_state = 0;
 
@@ -52,10 +60,25 @@ uint8_t dpram_read(uint32_t offset)
     return 0xFF;
 }
 
+/*
+ * The board's Z80 firmware polls the command register, executes the command and
+ * writes 0 back when done; the game busy-waits on it (Virtua Cop's 0x2928
+ * stores the "SEGA" magic at 0x34..0x3A, raises command 1, then spins until
+ * this reads back non-1). Nothing here runs asynchronously, so a command is
+ * complete the moment it is issued.
+ *
+ * ponytail: no per-command semantics - every command acks instantly. Add a
+ * switch here if a command has to leave a result in DPRAM before the ack.
+ */
 void dpram_write(uint32_t offset, uint8_t val)
 {
-    if (offset < sizeof(s_dpram))
-        s_dpram[offset] = val;
+    if (offset >= sizeof(s_dpram))
+        return;
+
+    s_dpram[offset] = val;
+
+    if (offset == DPRAM_CMD && val != 0)
+        s_dpram[DPRAM_CMD] = 0;
 }
 
 /* --- Input state --- */

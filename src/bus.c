@@ -6,6 +6,7 @@
  */
 
 #include "model2recomp/bus.h"
+#include "model2recomp/model2recomp.h"
 #include "model2recomp/video.h"
 #include "model2recomp/sound.h"
 #include "model2recomp/io.h"
@@ -167,7 +168,8 @@ uint32_t bus_read32(uint32_t addr)
         switch (reg) {
             case 0: return copro_ctl1_read();       /* 0x00980000 */
             case 1: return fifo_control_read();     /* 0x00980004 */
-            case 3: return videoctl_read();         /* 0x0098000C */
+            /* Field status: the frame boundary for the recompiled game. */
+            case 3: return model2recomp_field_sync(); /* 0x0098000C */
             case 12: case 13: case 14: case 15:     /* 0x00980030-0x0098003F */
                 return tgpid_read(reg - 12);
             default: return 0;
@@ -334,11 +336,45 @@ uint8_t bus_read8(uint32_t addr)
     return (uint8_t)(val32 >> ((addr & 3) * 8));
 }
 
+/* ---- i960 IAC (Interagent Communication) ----
+ *
+ * synmov/synmovq to 0xFF000010 delivers an IAC message to this processor.
+ * Virtua Cop's boot ROM uses message 0x93 (Reinitialize Processor) to hand
+ * control from the reset stub to the real firmware entry with a new PRCB:
+ *   field0 = 0x93000000, field2 = new PRCB, field3 = new IP.
+ * Only reinit is modelled; other messages are accepted and ignored. */
+#define IAC_MSG_BASE   0xFF000010u
+#define IAC_REINIT     0x93u
+
+static uint32_t s_iac[4];
+static uint32_t s_iac_reinit_ip;
+static uint32_t s_iac_reinit_prcb;
+
+uint32_t bus_iac_take_reinit(uint32_t *out_prcb)
+{
+    uint32_t ip = s_iac_reinit_ip;
+    if (out_prcb) *out_prcb = s_iac_reinit_prcb;
+    s_iac_reinit_ip = 0;
+    return ip;
+}
+
 /* ---- Bus write ---- */
 
 void bus_write32(uint32_t addr, uint32_t val)
 {
     addr &= ~3;
+
+    /* IAC message registers: 0xFF000010-0xFF00001F */
+    if (addr >= IAC_MSG_BASE && addr < IAC_MSG_BASE + 16) {
+        uint32_t word = (addr - IAC_MSG_BASE) >> 2;
+        s_iac[word] = val;
+        /* The quad is written low word first; act once the last word lands. */
+        if (word == 3 && (s_iac[0] >> 24) == IAC_REINIT) {
+            s_iac_reinit_prcb = s_iac[2];
+            s_iac_reinit_ip   = s_iac[3];
+        }
+        return;
+    }
 
     /* Program ROM: 0x00000000-0x001FFFFF (writes ignored) */
     if (addr < 0x00200000) return;

@@ -46,6 +46,11 @@ uint8_t  bus_read8(uint32_t addr);
 uint16_t bus_read16(uint32_t addr);
 uint32_t bus_read32(uint32_t addr);
 
+/* Consume a pending i960 "Reinitialize Processor" IAC (message 0x93).
+ * Returns the new instruction pointer, or 0 if none is pending; *out_prcb
+ * receives the new PRCB address. Clears the pending state. */
+uint32_t bus_iac_take_reinit(uint32_t *out_prcb);
+
 void bus_write8(uint32_t addr, uint8_t val);
 void bus_write16(uint32_t addr, uint16_t val);
 void bus_write32(uint32_t addr, uint32_t val);

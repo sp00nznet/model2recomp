@@ -185,12 +185,14 @@ uint32_t videoctl_read(void)
 
 uint32_t fifo_control_read(void)
 {
-    /* Bit 0: FIFO full, Bit 1: FIFO empty */
-    int count = (s_fifo_head - s_fifo_tail + FIFO_SIZE) % FIFO_SIZE;
-    uint32_t status = 0;
-    if (count == 0) status |= 2;           /* empty */
-    if (count >= FIFO_SIZE - 1) status |= 1; /* full */
-    return status;
+    /* Bit 0 reports the copro -> i960 output FIFO as empty (MAME
+     * model2_state::fifo_control_r). The game spins on this before uploading a
+     * TGP program, so getting the polarity wrong deadlocks the boot.
+     * s_copro_fifo is the i960 -> copro direction, which is not this one.
+     *
+     * ponytail: no copro is emulated, so its output FIFO is always empty.
+     * Track a real output FIFO here once the TGP runs. */
+    return 1;
 }
 
 uint32_t tgpid_read(uint32_t offset)

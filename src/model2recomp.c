@@ -198,6 +198,47 @@ void model2recomp_trigger_vblank(void)
     irq_raise(1);
 }
 
+/* --- Video field sync (see model2recomp.h) --- */
+
+#define VIDEOCTL_FIELD 0x4   /* bit 2 of 0x0098000C toggles each field */
+
+static long s_frame_limit = 0;
+static long s_fields_done = 0;
+
+void model2recomp_set_frame_limit(long fields)
+{
+    s_frame_limit = fields;
+}
+
+uint32_t model2recomp_field_sync(void)
+{
+    static uint32_t s_next_field_ms = 0;
+
+    uint32_t now = SDL_GetTicks();
+    if ((int32_t)(now - s_next_field_ms) >= 0) {
+        s_next_field_ms = now + (FRAME_US / 1000);
+
+        model2recomp_end_frame();
+        model2recomp_trigger_vblank();
+
+        bool quit = !model2recomp_begin_frame();
+        if (s_frame_limit > 0 && ++s_fields_done >= s_frame_limit) {
+            printf("[model2recomp] Frame limit (%ld) reached.\n", s_frame_limit);
+            quit = true;
+        }
+        if (quit) {
+            /* The guest is blocked in a busy-wait; there is no stack to unwind
+             * back to the host, so stop here. */
+            model2recomp_shutdown();
+            exit(0);
+        }
+
+        videoctl_write(videoctl_read() ^ VIDEOCTL_FIELD);
+    }
+
+    return videoctl_read();
+}
+
 const uint8_t *model2recomp_get_framebuffer(void)
 {
     return video_get_framebuffer();

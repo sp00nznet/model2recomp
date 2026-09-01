@@ -7,6 +7,7 @@
 
 #include "model2recomp/func_table.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define TABLE_SIZE 8192  /* Power of 2, must be > number of functions */
@@ -74,8 +75,22 @@ i960_func_t func_table_lookup(uint32_t i960_addr)
     return NULL;
 }
 
+/* MODEL2_TRACE=N prints the first N dispatches, indented by call depth.
+ * The last line before a hang names the function that is spinning. */
+static long s_trace_left = -1;
+
 bool func_table_call(uint32_t i960_addr)
 {
+    if (s_trace_left < 0) {
+        const char *e = getenv("MODEL2_TRACE");
+        s_trace_left = e ? strtol(e, NULL, 10) : 0;
+    }
+    if (s_trace_left > 0) {
+        s_trace_left--;
+        printf("%*s0x%08X\n", s_call_depth, "", i960_addr);
+        fflush(stdout);
+    }
+
     i960_func_t func = func_table_lookup(i960_addr);
     if (!func) {
         if (s_miss_count < MAX_MISS_LOG) {

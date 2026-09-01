@@ -59,6 +59,25 @@ void model2recomp_end_frame(void);
 void model2recomp_trigger_vblank(void);
 
 /*
+ * Video field sync - the frame boundary for a recompiled game.
+ *
+ * Recompiled game code owns its own main loop and busy-waits on the video
+ * status register (0x0098000C, bit 2) for the next field, so it never returns
+ * to a host frame loop. The bus routes reads of that register here: once a
+ * field period has elapsed this presents the frame, pumps input, ticks timers
+ * and flips the field bit, which is what lets the guest's wait terminate.
+ *
+ * Returns the video status register value.
+ */
+uint32_t model2recomp_field_sync(void);
+
+/*
+ * Stop after this many fields (0 = run until the window is closed). Used by
+ * automated boot tests; the guest busy-wait gives no other place to stop.
+ */
+void model2recomp_set_frame_limit(long fields);
+
+/*
  * Get the rendered framebuffer (496x384 RGBX8888).
  */
 const uint8_t *model2recomp_get_framebuffer(void);
