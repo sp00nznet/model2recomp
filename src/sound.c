@@ -8,6 +8,7 @@
  */
 
 #include "model2recomp/sound.h"
+#include "model2recomp/timer.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -41,6 +42,13 @@ void uart_write(uint32_t offset, uint8_t data)
         /* Data register - send byte to sound CPU */
         s_uart_data = data;
         /* TODO: queue for 68000 sound CPU */
+
+        /* The board raises the sound interrupt whenever the UART is ready to
+         * transmit or has received a byte (model2_state::sound_ready_w). With
+         * no 68000 to talk to, the transmitter is always ready, so sending a
+         * command immediately makes it ready again. The game enables this
+         * interrupt at boot and waits on it. */
+        irq_raise(IRQ_SOUND);
     } else {
         /* Control/mode register */
         /* TODO: handle UART control */

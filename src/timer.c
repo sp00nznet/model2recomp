@@ -71,6 +71,13 @@ void irq_enable_write(uint32_t data)
 {
     /* Delay IRQ mask update by 2 cycles (vcop2 needs this per MAME) */
     s_irq_enable = data;
+
+    /* Enabling the sound interrupt asserts it straight away if the UART is
+     * ready, which with a stubbed sound board it always is. MAME does the same
+     * from irq_mask_delayed_update. */
+    if (s_irq_enable & IRQ_SOUND)
+        s_irq_request |= IRQ_SOUND;
+
     irq_update();
 }
 

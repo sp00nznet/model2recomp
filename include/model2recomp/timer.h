@@ -43,6 +43,10 @@ void irq_update(void);
 /* Fire a specific interrupt */
 void irq_raise(uint32_t line_mask);
 
+/* Interrupt controller lines (model2_state::irq_update). */
+#define IRQ_VBLANK 0x0001
+#define IRQ_SOUND  0x0400
+
 /* Advance timers by elapsed microseconds */
 void timer_tick(uint32_t elapsed_us);
 

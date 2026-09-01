@@ -225,31 +225,36 @@ void model2recomp_trigger_vblank(void)
  * line to a vector, and the interrupt table (PRCB+0x14) holds the handler for
  * each vector from 8 upwards. The handler acks the controller itself.
  *
- * ponytail: no priority comparison, no nesting, one interrupt per field. The
- * pending-priority words in the interrupt table exist for that and can be
- * honoured here if a second source ever needs to pre-empt VBlank.
+ * Every pending line gets a turn, highest vector first, because the i960
+ * priority is the vector divided by 8. Servicing only the first pending line
+ * would starve every source but VBlank, which is asserted on line 0 in every
+ * single field.
+ *
+ * ponytail: no nesting and no pre-emption - each line is serviced at most once
+ * per field, in priority order. A source that needs to interrupt a handler
+ * already running would need the interrupt table's pending-priority words.
  */
 void model2recomp_dispatch_irq(void)
 {
-    uint32_t pending = irq_request_read() & irq_enable_read();
-    if (!pending) return;
-
-    /* Line assignment follows model2_state::irq_update. */
-    int line;
-    if      (pending & 0x001) line = 0;
-    else if (pending & 0x002) line = 1;
-    else if (pending & 0x3FC) line = 2;
-    else                      line = 3;
-
-    uint32_t vector = (bus_i960_icr() >> (line * 8)) & 0xFF;
-    if (vector < 8) return;   /* line is in IAC mode, which the hardware never uses here */
+    /* Which controller bits drive which external line, per
+     * model2_state::irq_update. */
+    static const uint32_t line_mask[4] = { 0x001, 0x002, 0x3FC, 0xC00 };
 
     uint32_t int_tab = bus_read32(bus_i960_prcb() + 0x14);
     if (!int_tab) return;
 
-    uint32_t handler = bus_read32(int_tab + 36 + (vector - 8) * 4);
-    if (handler)
-        func_table_call(handler);
+    for (int line = 3; line >= 0; line--) {
+        if (!(irq_request_read() & irq_enable_read() & line_mask[line]))
+            continue;
+
+        uint32_t vector = (bus_i960_icr() >> (line * 8)) & 0xFF;
+        if (vector < 8)
+            continue;   /* line is in IAC mode, which the hardware never uses here */
+
+        uint32_t handler = bus_read32(int_tab + 36 + (vector - 8) * 4);
+        if (handler)
+            func_table_call(handler);
+    }
 }
 
 void model2recomp_save_ppm(const char *path)

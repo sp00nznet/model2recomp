@@ -118,6 +118,7 @@ static inline void mem_write32(uint8_t *base, uint32_t offset, uint32_t val)
     base[offset + 3] = (uint8_t)(val >> 24);
 }
 
+
 /* ---- Bus read ---- */
 
 uint32_t bus_read32(uint32_t addr)
