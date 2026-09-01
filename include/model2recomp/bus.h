@@ -51,6 +51,13 @@ uint32_t bus_read32(uint32_t addr);
  * receives the new PRCB address. Clears the pending state. */
 uint32_t bus_iac_take_reinit(uint32_t *out_prcb);
 
+/* i960 interrupt control register: one vector per external IRQ line, line 0 in
+ * the low byte. Loaded by a synmov to 0xFF000004. */
+uint32_t bus_i960_icr(void);
+
+/* Current Process Control Block address. */
+uint32_t bus_i960_prcb(void);
+
 void bus_write8(uint32_t addr, uint8_t val);
 void bus_write16(uint32_t addr, uint16_t val);
 void bus_write32(uint32_t addr, uint32_t val);

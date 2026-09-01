@@ -345,10 +345,26 @@ uint8_t bus_read8(uint32_t addr)
  * Only reinit is modelled; other messages are accepted and ignored. */
 #define IAC_MSG_BASE   0xFF000010u
 #define IAC_REINIT     0x93u
+#define IAC_ICR        0xFF000004u  /* synmov here loads the interrupt control register */
 
 static uint32_t s_iac[4];
 static uint32_t s_iac_reinit_ip;
 static uint32_t s_iac_reinit_prcb;
+static uint32_t s_i960_icr;
+
+/* The ICR packs one interrupt vector per external IRQ line, line 0 in the low
+ * byte. Virtua Cop loads 0x0F0E0D0C, so VBlank (line 0) is vector 12. */
+uint32_t bus_i960_icr(void)
+{
+    return s_i960_icr;
+}
+
+/* Current Process Control Block: whatever the last reinitialize IAC named, or
+ * the reset PRCB from the System Address Table if the guest never reinitialized. */
+uint32_t bus_i960_prcb(void)
+{
+    return s_iac_reinit_prcb ? s_iac_reinit_prcb : bus_read32(4);
+}
 
 uint32_t bus_iac_take_reinit(uint32_t *out_prcb)
 {
@@ -363,6 +379,12 @@ uint32_t bus_iac_take_reinit(uint32_t *out_prcb)
 void bus_write32(uint32_t addr, uint32_t val)
 {
     addr &= ~3;
+
+    /* Interrupt control register (synmov, not an IAC message) */
+    if (addr == IAC_ICR) {
+        s_i960_icr = val;
+        return;
+    }
 
     /* IAC message registers: 0xFF000010-0xFF00001F */
     if (addr >= IAC_MSG_BASE && addr < IAC_MSG_BASE + 16) {

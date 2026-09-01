@@ -59,6 +59,13 @@ void model2recomp_end_frame(void);
 void model2recomp_trigger_vblank(void);
 
 /*
+ * Call the recompiled interrupt handler for the highest pending interrupt, if
+ * any. Recompiled code has no interruptible instruction boundary, so this runs
+ * at the field boundary. Called from model2recomp_field_sync().
+ */
+void model2recomp_dispatch_irq(void);
+
+/*
  * Video field sync - the frame boundary for a recompiled game.
  *
  * Recompiled game code owns its own main loop and busy-waits on the video
@@ -76,6 +83,12 @@ uint32_t model2recomp_field_sync(void);
  * automated boot tests; the guest busy-wait gives no other place to stop.
  */
 void model2recomp_set_frame_limit(long fields);
+
+/*
+ * Write the current framebuffer to a binary PPM. Also happens automatically at
+ * the frame limit when MODEL2_SCREENSHOT names a path.
+ */
+void model2recomp_save_ppm(const char *path);
 
 /*
  * Get the rendered framebuffer (496x384 RGBX8888).

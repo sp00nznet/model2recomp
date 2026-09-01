@@ -55,8 +55,11 @@ uint32_t irq_request_read(void)
 
 void irq_ack_write(uint32_t data)
 {
-    /* Writing bits clears the corresponding IRQ request */
-    s_irq_request &= ~data;
+    /* The written value is a keep-mask, not a clear-mask: the request register
+     * is ANDed with it (MAME model2_state::irq_ack_w). Virtua Cop's VBlank
+     * handler acks with ~1, which under the inverted reading cleared every
+     * line except the one it meant to clear. */
+    s_irq_request &= data;
 }
 
 uint32_t irq_enable_read(void)

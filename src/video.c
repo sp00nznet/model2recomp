@@ -311,31 +311,135 @@ void lumaram_write(uint32_t offset, uint8_t data)
     if (offset < 0x20000) s_lumaram[offset] = data;
 }
 
+/* --- System 24 tilemap rendering ---
+ *
+ * Four 64x64 tilemaps of 8x8 4bpp characters. Reference: MAME segaic24.cpp
+ * (segas24_tile_device) for the layout, model2_v.cpp for the draw order.
+ *
+ * Tile RAM (word offsets):
+ *   0x0000/0x1000/0x2000/0x3000  name tables for layers 0..3, 64x64 entries
+ *   0x5000 + L                   horizontal scroll for layer L
+ *   0x5004 + L                   vertical scroll; bit 15 disables the layer
+ *
+ * A name-table word is: tile index in the low bits, colour in bits 7-14, and
+ * bit 15 selecting which pass draws it - clear means behind the 3D scene, set
+ * means in front of it.
+ *
+ * Char RAM holds 32 bytes per tile: 8 rows of 8 pixels packed 4bpp. MAME reads
+ * it as 16-bit words with the byte order swapped on little-endian hosts, which
+ * works out to simply taking the four nibbles of each word from MSB to LSB.
+ * Pen 0 is transparent.
+ */
+
+#define TILE_NAME_TABLE(L) (0x1000u * (L))
+#define TILE_HSCROLL       0x5000u
+#define TILE_VSCROLL       0x5004u
+/* Name-table bits that index char RAM. Model 2 wires this to 0x3FFF (MAME:
+ * S24TILE(config, m_tiles, 0, 0x3fff)), which is the whole 0x4000-tile char
+ * RAM. Note the colour field at bits 7-14 overlaps it - that is the hardware,
+ * not a decode mistake: a tile's index partly determines its palette bank. */
+#define TILE_MASK          0x3FFFu
+
+/* Model 2 palette entries are 15-bit, red in the low bits.
+ *
+ * ponytail: the real path runs this through the colour-translate RAM and a
+ * gamma table (model2_v.cpp) before the DAC. Straight 5-to-8 bit expansion
+ * until there is something on screen to compare against. */
+static inline uint32_t palette_rgbx(uint16_t entry)
+{
+    uint32_t r = ((entry >> 0)  & 0x1F) << 3;
+    uint32_t g = ((entry >> 5)  & 0x1F) << 3;
+    uint32_t b = ((entry >> 10) & 0x1F) << 3;
+    return r | (g << 8) | (b << 16) | 0xFF000000u;
+}
+
+static inline uint16_t tile_word(uint32_t word_offset)
+{
+    return *(const uint16_t *)(s_tile_ram + word_offset * 2);
+}
+
+/*
+ * Draw one tilemap layer. `pass` selects name-table entries by bit 15, so the
+ * same layer contributes to both the behind-3D and in-front-of-3D passes.
+ * `opaque` writes pen 0 as well, which is how the bottom layer clears.
+ */
+static void tilemap_draw_layer(int layer, int pass, int opaque)
+{
+    uint16_t hscr = tile_word(TILE_HSCROLL + layer);
+    uint16_t vscr = tile_word(TILE_VSCROLL + layer);
+
+    if (vscr & 0x8000)
+        return; /* layer disabled */
+
+    /* ponytail: plain scroll only. Per-line scroll (hscr bit 15) and the
+     * window/split modes (ctrl bits 13-14) are in segaic24.cpp's draw_common
+     * and matter for the in-game HUD, not for the boot and test screens. */
+    int scroll_x = hscr & 0x1FF;
+    int scroll_y = vscr & 0x1FF;
+
+    const uint32_t names = TILE_NAME_TABLE(layer);
+
+    for (int y = 0; y < FB_HEIGHT; y++) {
+        /* The tilemap is 64x64 tiles = 512x512 pixels, and wraps. */
+        int src_y = (y + scroll_y) & 0x1FF;
+        int tile_row = src_y >> 3;
+        int fine_y = src_y & 7;
+        uint8_t *dst_row = s_framebuffer + (size_t)y * FB_WIDTH * 4;
+
+        for (int x = 0; x < FB_WIDTH; x++) {
+            int src_x = (x + scroll_x) & 0x1FF;
+            uint16_t name = tile_word(names + tile_row * 64 + (src_x >> 3));
+
+            if (((name >> 15) & 1) != pass)
+                continue;
+
+            /* 32 bytes per tile, 2 words per row of 8 pixels. */
+            uint32_t row_word = (name & TILE_MASK) * 16u + (uint32_t)fine_y * 2u;
+            int fine_x = src_x & 7;
+            uint16_t bits = *(const uint16_t *)(s_char_ram + (row_word + (fine_x >> 2)) * 2);
+            uint32_t pen = (bits >> (12 - 4 * (fine_x & 3))) & 0xF;
+
+            if (pen == 0 && !opaque)
+                continue;
+
+            uint32_t pal_index = (((name >> 7) & 0xFF) * 16u + pen) & 0x1FFF;
+            *(uint32_t *)(dst_row + x * 4) = palette_rgbx(s_palram[pal_index]);
+        }
+    }
+}
+
 /* --- Rendering --- */
 
 void video_render_frame(void)
 {
-    /* TODO: Port MAME's rasterizer (model2_v.cpp / model2rd.ipp)
-     *
-     * For now, convert framebuffer A from Model 2 16bpp to RGBX8888.
-     * Format: xGGGGGRRRRRBBBBB (little-endian 16-bit)
+    if (!s_framebuffer) return;
+
+    /*
+     * Frame composition, following model2_v.cpp: the tilemaps split around the
+     * 3D scene. Layers draw back to front, layer 3 lowest.
      */
-    if (!s_framebuffer || !s_fbvramA) return;
+    for (int layer = 3; layer >= 0; layer--)
+        tilemap_draw_layer(layer, 0, layer == 3);
 
-    for (int y = 0; y < FB_HEIGHT && y < 400; y++) {
-        for (int x = 0; x < FB_WIDTH && x < 512; x++) {
-            uint16_t pixel = s_fbvramA[y * 512 + x];
-            uint8_t r = ((pixel >> 0)  & 0x1F) << 3;
-            uint8_t g = ((pixel >> 5)  & 0x1F) << 3;
-            uint8_t b = ((pixel >> 10) & 0x1F) << 3;
-
-            int dst = (y * FB_WIDTH + x) * 4;
-            s_framebuffer[dst + 0] = r;
-            s_framebuffer[dst + 1] = g;
-            s_framebuffer[dst + 2] = b;
-            s_framebuffer[dst + 3] = 0xFF;
+    /*
+     * The 3D scene belongs here. Nothing rasterizes into framebuffer A yet, so
+     * copy across only the pixels that are actually set - blitting the whole
+     * (empty) buffer would erase the tilemaps underneath.
+     * Format: xBBBBBGGGGGRRRRR, red in the low bits.
+     */
+    if (s_fbvramA) {
+        for (int y = 0; y < FB_HEIGHT && y < 400; y++) {
+            for (int x = 0; x < FB_WIDTH && x < 512; x++) {
+                uint16_t pixel = s_fbvramA[y * 512 + x];
+                if (!pixel) continue;
+                *(uint32_t *)(s_framebuffer + ((size_t)y * FB_WIDTH + x) * 4) =
+                    palette_rgbx(pixel);
+            }
         }
     }
+
+    for (int layer = 3; layer >= 0; layer--)
+        tilemap_draw_layer(layer, 1, 0);
 }
 
 const uint8_t *video_get_framebuffer(void)

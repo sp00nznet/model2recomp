@@ -152,8 +152,20 @@ bool model2recomp_begin_frame(void)
     if (mright) in1 &= ~IN1_P2_TRIGGER;
     io_set_input(1, in1);
 
-    /* Map keyboard to service/test/coin/start */
+    /* Map keyboard to service/test/coin/start.
+     * MODEL2_HOLD holds one of them down for headless runs, so an automated
+     * boot test can reach the service menu and screenshot it. */
+    static const char *hold = NULL;
+    static bool hold_read = false;
+    if (!hold_read) { hold = getenv("MODEL2_HOLD"); hold_read = true; }
+
     uint8_t in0 = 0xFF;
+    if (hold) {
+        if (!strcmp(hold, "test"))    in0 &= ~IN0_TEST;
+        if (!strcmp(hold, "service")) in0 &= ~IN0_SERVICE;
+        if (!strcmp(hold, "start1"))  in0 &= ~IN0_START1;
+        if (!strcmp(hold, "coin1"))   in0 &= ~IN0_COIN1;
+    }
     if (platform_key_pressed(SDL_SCANCODE_5))     in0 &= ~IN0_COIN1;
     if (platform_key_pressed(SDL_SCANCODE_6))     in0 &= ~IN0_COIN2;
     if (platform_key_pressed(SDL_SCANCODE_9))     in0 &= ~IN0_SERVICE;
@@ -198,6 +210,64 @@ void model2recomp_trigger_vblank(void)
     irq_raise(1);
 }
 
+/*
+ * Deliver a pending interrupt to the recompiled code.
+ *
+ * Recompiled functions are native C, so there is no instruction boundary to
+ * interrupt. Instead the handler is called at the field boundary, which is
+ * where the guest is already synchronising and where the real VBlank lands.
+ *
+ * The route to the handler is the one the processor takes: the Model 2
+ * interrupt controller drives one of four external lines, the ICR maps that
+ * line to a vector, and the interrupt table (PRCB+0x14) holds the handler for
+ * each vector from 8 upwards. The handler acks the controller itself.
+ *
+ * ponytail: no priority comparison, no nesting, one interrupt per field. The
+ * pending-priority words in the interrupt table exist for that and can be
+ * honoured here if a second source ever needs to pre-empt VBlank.
+ */
+void model2recomp_dispatch_irq(void)
+{
+    uint32_t pending = irq_request_read() & irq_enable_read();
+    if (!pending) return;
+
+    /* Line assignment follows model2_state::irq_update. */
+    int line;
+    if      (pending & 0x001) line = 0;
+    else if (pending & 0x002) line = 1;
+    else if (pending & 0x3FC) line = 2;
+    else                      line = 3;
+
+    uint32_t vector = (bus_i960_icr() >> (line * 8)) & 0xFF;
+    if (vector < 8) return;   /* line is in IAC mode, which the hardware never uses here */
+
+    uint32_t int_tab = bus_read32(bus_i960_prcb() + 0x14);
+    if (!int_tab) return;
+
+    uint32_t handler = bus_read32(int_tab + 36 + (vector - 8) * 4);
+    if (handler)
+        func_table_call(handler);
+}
+
+void model2recomp_save_ppm(const char *path)
+{
+    const uint8_t *fb = video_get_framebuffer();
+    if (!fb) return;
+
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        fprintf(stderr, "[model2recomp] Cannot write screenshot: %s\n", path);
+        return;
+    }
+
+    fprintf(f, "P6\n%d %d\n255\n", FB_WIDTH, FB_HEIGHT);
+    for (int i = 0; i < FB_WIDTH * FB_HEIGHT; i++)
+        fwrite(&fb[i * 4], 1, 3, f);   /* RGBX -> RGB */
+    fclose(f);
+
+    printf("[model2recomp] Wrote %s (%dx%d)\n", path, FB_WIDTH, FB_HEIGHT);
+}
+
 /* --- Video field sync (see model2recomp.h) --- */
 
 #define VIDEOCTL_FIELD 0x4   /* bit 2 of 0x0098000C toggles each field */
@@ -220,10 +290,16 @@ uint32_t model2recomp_field_sync(void)
 
         model2recomp_end_frame();
         model2recomp_trigger_vblank();
+        model2recomp_dispatch_irq();
 
         bool quit = !model2recomp_begin_frame();
         if (s_frame_limit > 0 && ++s_fields_done >= s_frame_limit) {
             printf("[model2recomp] Frame limit (%ld) reached.\n", s_frame_limit);
+            /* MODEL2_SCREENSHOT=path writes the final frame as a PPM. A boot
+             * test that exits cleanly still tells you nothing about what was
+             * on screen; this does. */
+            const char *shot = getenv("MODEL2_SCREENSHOT");
+            if (shot) model2recomp_save_ppm(shot);
             quit = true;
         }
         if (quit) {

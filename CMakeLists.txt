@@ -49,3 +49,15 @@ if(MODEL2RECOMP_BUILD_EXAMPLES)
         SDL2::SDL2main
     )
 endif()
+
+# --- Tests ---
+option(MODEL2RECOMP_BUILD_TESTS "Build test programs" ON)
+if(MODEL2RECOMP_BUILD_TESTS)
+    add_executable(model2recomp_test_tilemap
+        tests/test_tilemap.c
+    )
+    target_link_libraries(model2recomp_test_tilemap PRIVATE
+        model2recomp
+        SDL2::SDL2main
+    )
+endif()
