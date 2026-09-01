@@ -8,6 +8,7 @@
  */
 
 #include "model2recomp/video.h"
+#include "model2recomp/bus.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,11 +28,6 @@ static uint8_t  *s_char_ram = NULL;     /* 512KB System 24 char RAM */
 static uint32_t s_render_mode = 0;
 static uint32_t s_videoctl = 0;
 static uint32_t s_zclip = 0;
-
-/* Geometry engine state */
-static uint32_t s_geo_ram[4096];        /* Geo program RAM (16KB) */
-static uint32_t s_geo_write_pos = 0;
-static uint32_t s_geo_read_pos = 0;
 
 /* Coprocessor state */
 static uint32_t s_copro_ctl = 0;
@@ -59,8 +55,6 @@ void video_init(void)
     s_tile_ram     = (uint8_t *)calloc(1, 0x10000);    /* 64KB */
     s_char_ram     = (uint8_t *)calloc(1, 0x80000);    /* 512KB */
 
-    memset(s_geo_ram, 0, sizeof(s_geo_ram));
-
     printf("[video] Initialized (%dx%d)\n", FB_WIDTH, FB_HEIGHT);
 }
 
@@ -78,38 +72,104 @@ void video_shutdown(void)
     free(s_char_ram);     s_char_ram = NULL;
 }
 
-/* --- Geometry engine --- */
+/* --- Geometry engine ---
+ *
+ * The i960 does not talk to the geometry engine directly. It pushes a command
+ * stream into buffer RAM through the geo program port, having first told the
+ * engine where to write and where to read, and the engine walks that stream
+ * once per field. Reference: MAME model2_state::geo_w / geo_prg_w / geo_parse.
+ *
+ * The port at 0x00804000 is dual purpose: while the control register's high
+ * bit is set it is receiving TGP microcode, and otherwise it is pushing
+ * geometry data. The microcode is discarded here - the geometry engine is
+ * modelled directly rather than by running the DSP.
+ */
+
+static uint32_t s_geo_write_addr;    /* byte offset into buffer RAM */
+static uint32_t s_geo_read_addr;
+static uint32_t s_geoctl;
+static uint32_t s_geo_upload_words;
+
+/* Push one word onto the command stream at the current write address. */
+static void geo_push(uint32_t data)
+{
+    bus_bufferram_write32(s_geo_write_addr, data);
+    s_geo_write_addr += 4;
+}
 
 void geo_write(uint32_t offset, uint32_t data)
 {
-    if (offset < 4096)
-        s_geo_ram[offset] = data;
+    uint32_t address = offset * 4;
+
+    if (address < 0x1000) {
+        /*
+         * This is how commands are issued: the register address carries the
+         * function number and the written value carries its parameter, and the
+         * two are combined into one word appended to the stream. The parser
+         * later reads that function number back out as bits 23-28.
+         *
+         * Missing this leaves the stream as operands with no opcodes, which
+         * parses as noise.
+         */
+        uint32_t function = (address >> 4) & 0x3F;
+
+        if (data & 0x80000000) {
+            geo_push((data & 0x800FFFFF) | (function << 23));
+        } else if ((address & 0xF) == 0) {
+            uint32_t r = (data & 0x000FFFFF) | (function << 23);
+
+            /* Function 1 (object data) in the high register window also
+             * carries the eye mode in the address. */
+            if (((address >> 4) & 0xC0) && function == 1)
+                r |= ((address >> 10) & 3) << 29;
+
+            geo_push(r);
+        }
+        return;
+    }
+
+    if (address == 0x1008)
+        s_geo_write_addr = data & 0xFFFFF;
+    else if (address == 0x3008)
+        s_geo_read_addr = data & 0xFFFFF;
 }
 
 uint32_t geo_read(uint32_t offset)
 {
-    if (offset < 4096)
-        return s_geo_ram[offset];
+    uint32_t address = offset * 4;
+
+    if (address == 0x2008) return s_geo_write_addr;
+    if (address == 0x3008) return s_geo_read_addr;
     return 0;
 }
 
 void geo_prg_write(uint32_t data)
 {
-    if (s_geo_write_pos < 4096)
-        s_geo_ram[s_geo_write_pos++] = data;
+    if (s_geoctl & 0x80000000) {
+        s_geo_upload_words++;   /* TGP microcode; not executed */
+        return;
+    }
+
+    geo_push(data);
 }
 
 uint32_t geo_prg_read(uint32_t offset)
 {
-    if (offset < 4096)
-        return s_geo_ram[offset];
-    return 0;
+    return 0xFFFFFFFF;   /* the real port reads back as open bus */
 }
 
 void geo_ctl1_write(uint32_t data)
 {
-    s_geo_write_pos = 0;
-    /* TODO: reset geometry engine state */
+    /* A high-bit transition brackets a microcode upload. */
+    if ((data ^ s_geoctl) == 0x80000000 && (data & 0x80000000))
+        s_geo_upload_words = 0;
+
+    s_geoctl = data;
+}
+
+uint32_t geo_read_start_address(void)
+{
+    return s_geo_read_addr;
 }
 
 /* --- Coprocessor (TGP) --- */
@@ -170,7 +230,7 @@ uint32_t render_mode_read(void)
 
 uint32_t polygon_count_read(void)
 {
-    return 0; /* TODO */
+    return geo_polygon_count();
 }
 
 void videoctl_write(uint32_t data)
@@ -296,6 +356,7 @@ void colorxlat_write(uint32_t offset, uint16_t data)
 void zclip_write(uint32_t data)
 {
     s_zclip = data;
+    geo_set_master_z_clip(data);
 }
 
 /* --- Luma RAM --- */
@@ -422,18 +483,20 @@ void video_render_frame(void)
         tilemap_draw_layer(layer, 0, layer == 3);
 
     /*
-     * The 3D scene belongs here. Nothing rasterizes into framebuffer A yet, so
-     * copy across only the pixels that are actually set - blitting the whole
-     * (empty) buffer would erase the tilemaps underneath.
+     * The 3D scene, over the back tilemaps and under the front ones. Only
+     * pixels the rasterizer actually touched are copied; zero means nothing
+     * was drawn there, so the tilemap below shows through.
      * Format: xBBBBBGGGGGRRRRR, red in the low bits.
      */
-    if (s_fbvramA) {
-        for (int y = 0; y < FB_HEIGHT && y < 400; y++) {
-            for (int x = 0; x < FB_WIDTH && x < 512; x++) {
-                uint16_t pixel = s_fbvramA[y * 512 + x];
-                if (!pixel) continue;
-                *(uint32_t *)(s_framebuffer + ((size_t)y * FB_WIDTH + x) * 4) =
-                    palette_rgbx(pixel);
+    const uint16_t *scene = geo_get_destmap();
+    if (scene) {
+        for (int y = 0; y < FB_HEIGHT; y++) {
+            const uint16_t *src = scene + (size_t)y * 512;
+            uint8_t *dst = s_framebuffer + (size_t)y * FB_WIDTH * 4;
+
+            for (int x = 0; x < FB_WIDTH; x++) {
+                if (!src[x]) continue;
+                *(uint32_t *)(dst + x * 4) = palette_rgbx(src[x]);
             }
         }
     }

@@ -14,6 +14,7 @@ add_library(model2recomp STATIC
     src/bus.c
     src/func_table.c
     src/video.c
+    src/geometry.c
     src/sound.c
     src/io.c
     src/timer.c
@@ -57,6 +58,14 @@ if(MODEL2RECOMP_BUILD_TESTS)
         tests/test_tilemap.c
     )
     target_link_libraries(model2recomp_test_tilemap PRIVATE
+        model2recomp
+        SDL2::SDL2main
+    )
+
+    add_executable(model2recomp_test_geometry
+        tests/test_geometry.c
+    )
+    target_link_libraries(model2recomp_test_geometry PRIVATE
         model2recomp
         SDL2::SDL2main
     )

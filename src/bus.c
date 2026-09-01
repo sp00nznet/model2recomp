@@ -33,6 +33,12 @@ static uint32_t s_data_rom_size = 0;
 static uint8_t *s_extra_data = NULL;    /* 0x06000000, up to 16MB */
 static uint32_t s_extra_data_size = 0;
 
+/* Texture ROM: not in the i960 address space at all - only the rasterizer
+ * reads it, for texture pixels and for the per-vertex UVs the geometry engine
+ * indexes by "texture point address". */
+static uint8_t *s_texture_rom = NULL;
+static uint32_t s_texture_rom_size = 0;
+
 /* DPRAM for I/O board */
 static uint8_t s_dpram[0x1000];
 
@@ -65,6 +71,7 @@ void bus_shutdown(void)
     free(s_backup_sram);   s_backup_sram = NULL;
     free(s_data_rom);      s_data_rom = NULL;
     free(s_extra_data);    s_extra_data = NULL;
+    free(s_texture_rom);   s_texture_rom = NULL;
 }
 
 void bus_set_vblank_callback(bus_vblank_callback_t cb)
@@ -644,6 +651,21 @@ void bus_write8(uint32_t addr, uint8_t val)
 uint8_t *bus_get_workram(void)       { return s_workram; }
 uint8_t *bus_get_program_ram(void)   { return s_program_ram; }
 uint8_t *bus_get_buffer_ram(void)    { return s_bufferram; }
+
+/* Buffer RAM is where the geometry command stream lives; the engine walks it
+ * by dword, so give it a direct accessor rather than routing through the
+ * address decoder for every word. */
+uint32_t bus_bufferram_read32(uint32_t offset)
+{
+    if (!s_bufferram) return 0;
+    return mem_read32(s_bufferram, offset & 0x1FFFC);
+}
+
+void bus_bufferram_write32(uint32_t offset, uint32_t val)
+{
+    if (!s_bufferram) return;
+    mem_write32(s_bufferram, offset & 0x1FFFC, val);
+}
 uint8_t *bus_get_backup_sram(void)   { return s_backup_sram; }
 
 const uint8_t *bus_get_program_rom(uint32_t *size_out)
@@ -684,6 +706,27 @@ void bus_load_extra_data(const uint8_t *data, uint32_t size)
     s_extra_data = rom_dup(data, size);
     s_extra_data_size = s_extra_data ? size : 0;
     printf("[bus] Extra data loaded: %u bytes @ 0x06000000\n", s_extra_data_size);
+}
+
+void bus_load_texture_rom(const uint8_t *data, uint32_t size)
+{
+    free(s_texture_rom);
+    s_texture_rom = rom_dup(data, size);
+    s_texture_rom_size = s_texture_rom ? size : 0;
+    printf("[bus] Texture ROM loaded: %u bytes\n", s_texture_rom_size);
+}
+
+const uint16_t *bus_get_texture_rom(uint32_t *words_out)
+{
+    if (words_out) *words_out = s_texture_rom_size / 2;
+    return (const uint16_t *)s_texture_rom;
+}
+
+/* Polygon ROM is the same image the i960 sees at 0x06000000. */
+const uint32_t *bus_get_polygon_rom(uint32_t *words_out)
+{
+    if (words_out) *words_out = s_extra_data_size / 4;
+    return (const uint32_t *)s_extra_data;
 }
 
 const uint8_t *bus_get_data_rom(uint32_t *size_out)

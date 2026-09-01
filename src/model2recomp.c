@@ -51,6 +51,7 @@ bool model2recomp_init(const char *window_title, int scale, model2_variant_t var
     i960_reset();
     func_table_init();
     video_init();
+    geo_init();
     sound_init();
     io_init();
     timer_init();
@@ -125,6 +126,7 @@ bool model2recomp_load_rom(const char *rom_dir)
 
     load_region(rom_dir, "data.bin",     bus_load_data_rom,   false);
     load_region(rom_dir, "polygons.bin", bus_load_extra_data, false);
+    load_region(rom_dir, "textures.bin", bus_load_texture_rom, false);
 
     printf("[model2recomp] ROM loading complete\n");
     return true;
@@ -188,7 +190,8 @@ void model2recomp_end_frame(void)
     sound_run_frame();
     sound_generate_samples(s_audio_buffer, AUDIO_SAMPLES_PER_FRAME);
 
-    /* Render video */
+    /* Render video: 3D first into its own bitmap, then composite */
+    geo_render_polygons();
     video_render_frame();
 
     /* Present to screen */
@@ -288,6 +291,10 @@ uint32_t model2recomp_field_sync(void)
     if ((int32_t)(now - s_next_field_ms) >= 0) {
         s_next_field_ms = now + (FRAME_US / 1000);
 
+        /* The geometry engine walks the stream the game submitted last field,
+         * then the frame is drawn from the resulting polygon list, then the
+         * VBlank interrupt lets the game build the next one. */
+        geo_parse();
         model2recomp_end_frame();
         model2recomp_trigger_vblank();
         model2recomp_dispatch_irq();
@@ -329,6 +336,7 @@ void model2recomp_shutdown(void)
     eeprom_shutdown();
     io_shutdown();
     sound_shutdown();
+    geo_shutdown();
     video_shutdown();
     bus_shutdown();
     platform_shutdown();

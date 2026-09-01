@@ -87,10 +87,20 @@ const uint8_t *bus_get_data_rom(uint32_t *size_out);
 void bus_load_program_rom(const uint8_t *data, uint32_t size);
 void bus_load_data_rom(const uint8_t *data, uint32_t size);
 void bus_load_extra_data(const uint8_t *data, uint32_t size);
+void bus_load_texture_rom(const uint8_t *data, uint32_t size);
+
+/* Direct ROM access for the geometry engine and rasterizer. Neither lives in
+ * the i960 address space the way the CPU sees it. */
+const uint32_t *bus_get_polygon_rom(uint32_t *words_out);
+const uint16_t *bus_get_texture_rom(uint32_t *words_out);
 
 /* --- Buffer RAM access --- */
 /* Buffer RAM is 128KB at 0x00900000-0x0091FFFF */
 uint8_t *bus_get_buffer_ram(void);
+
+/* Buffer RAM by byte offset, for the geometry engine's command stream. */
+uint32_t bus_bufferram_read32(uint32_t offset);
+void bus_bufferram_write32(uint32_t offset, uint32_t val);
 
 /* --- Backup SRAM access --- */
 /* Backup SRAM is 16KB at 0x01D00000-0x01D03FFF */

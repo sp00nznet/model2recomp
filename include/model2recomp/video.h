@@ -35,6 +35,30 @@ uint32_t geo_read(uint32_t offset);
 void geo_prg_write(uint32_t data);
 uint32_t geo_prg_read(uint32_t offset);
 
+/* Byte offset in buffer RAM where the geometry command stream begins. */
+uint32_t geo_read_start_address(void);
+
+/* --- Geometry engine / 3D rasterizer (geometry.c) --- */
+
+void geo_init(void);
+void geo_shutdown(void);
+
+/* Walk one field's command stream out of buffer RAM, producing the polygon
+ * list. Called at the field boundary, as the hardware does at VBlank. */
+void geo_parse(void);
+
+/* Project and rasterize the polygon list into the 3D bitmap. */
+void geo_render_polygons(void);
+
+/* The rendered 3D bitmap: 512 pixels per row, 16bpp, 0 where nothing drawn. */
+const uint16_t *geo_get_destmap(void);
+
+/* Polygons produced by the last geo_parse. */
+uint32_t geo_polygon_count(void);
+
+/* Master z-clip register (0xFF disables clipping). */
+void geo_set_master_z_clip(uint32_t data);
+
 /* Geo control */
 void geo_ctl1_write(uint32_t data);
 
