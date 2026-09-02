@@ -299,7 +299,9 @@ uint32_t model2recomp_field_sync(void)
         /* The geometry engine walks the stream the game submitted last field,
          * then the frame is drawn from the resulting polygon list, then the
          * VBlank interrupt lets the game build the next one. */
-        geo_parse();
+        /* Only walk a list the game has actually finished writing. */
+        if (geo_take_list_ready())
+            geo_parse();
         model2recomp_end_frame();
         model2recomp_trigger_vblank();
         model2recomp_dispatch_irq();

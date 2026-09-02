@@ -11,6 +11,7 @@
 #include "model2recomp/bus.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 
 /* Video state */
@@ -89,6 +90,7 @@ static uint32_t s_geo_write_addr;    /* byte offset into buffer RAM */
 static uint32_t s_geo_read_addr;
 static uint32_t s_geoctl;
 static uint32_t s_geo_upload_words;
+static bool s_geo_list_ready;
 
 /* Push one word onto the command stream at the current write address. */
 static void geo_push(uint32_t data)
@@ -128,10 +130,19 @@ void geo_write(uint32_t offset, uint32_t data)
         return;
     }
 
-    if (address == 0x1008)
+    if (address == 0x1008) {
         s_geo_write_addr = data & 0xFFFFF;
-    else if (address == 0x3008)
+    } else if (address == 0x3008) {
+        /*
+         * Writing the read address is the game publishing a finished display
+         * list. Parsing on an arbitrary field boundary instead races the
+         * construction of the next one: the game reads the video status
+         * register more than once per field, so the parse could land midway
+         * through the list being written and pick up a half-updated matrix.
+         */
         s_geo_read_addr = data & 0xFFFFF;
+        s_geo_list_ready = true;
+    }
 }
 
 uint32_t geo_read(uint32_t offset)
@@ -170,6 +181,14 @@ void geo_ctl1_write(uint32_t data)
 uint32_t geo_read_start_address(void)
 {
     return s_geo_read_addr;
+}
+
+/* True once the game has published a new display list since the last parse. */
+bool geo_take_list_ready(void)
+{
+    bool ready = s_geo_list_ready;
+    s_geo_list_ready = false;
+    return ready;
 }
 
 /* --- Coprocessor (TGP) --- */

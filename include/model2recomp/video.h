@@ -16,6 +16,7 @@
 #ifndef MODEL2RECOMP_VIDEO_H
 #define MODEL2RECOMP_VIDEO_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -37,6 +38,9 @@ uint32_t geo_prg_read(uint32_t offset);
 
 /* Byte offset in buffer RAM where the geometry command stream begins. */
 uint32_t geo_read_start_address(void);
+
+/* Consume the "a new display list has been published" flag. */
+bool geo_take_list_ready(void);
 
 /* CRT sync offsets, which position the 3D scene in the visible area. */
 void video_get_crtc_offsets(int *x, int *y);
