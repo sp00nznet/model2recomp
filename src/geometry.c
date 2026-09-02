@@ -135,8 +135,9 @@ static bool            s_render_done;
 
 /* The 3D output goes to its own bitmap, not to framebuffer VRAM. The game
  * writes that VRAM itself in render-test mode, and MAME likewise renders to a
- * separate destmap and composites. Non-zero pixels are the drawn ones. */
-static uint16_t *s_destmap;
+ * separate destmap and composites. Non-zero pixels are the drawn ones, which
+ * is why the shading path sets the top byte. */
+static uint32_t *s_destmap;
 
 /* CRT offsets. MAME's renderer applies these when projecting; they position
  * the 3D image inside the 496x384 visible area. */
@@ -952,20 +953,26 @@ void geo_frame_start(void)
  */
 static bool geo_bind_roms(void)
 {
+    /*
+     * The mask is the region size, not the size of the data in it. Virtua Cop
+     * declares both regions as 16MB and fills the first 4MB from two 2MB ROMs
+     * interleaved as 32-bit words, leaving the rest zero - so the images
+     * tools/rom_loader.py writes are already region-sized and the file length
+     * is the right thing to mask with. Masking to the *data* extent instead
+     * folds high addresses back onto real geometry and produces vertices with
+     * nonsense z values.
+     */
     if (s_geo->polygon_rom)
         return true;
 
-    uint32_t words = 0;
-    const uint32_t *poly = bus_get_polygon_rom(&words);
-    uint32_t poly_words = words;
+    uint32_t poly_words = 0, tex_words = 0;
+    const uint32_t *poly = bus_get_polygon_rom(&poly_words);
+    const uint16_t *tex = bus_get_texture_rom(&tex_words);
 
-    const uint16_t *tex = bus_get_texture_rom(&words);
-    uint32_t tex_words = words;
-
-    if (!poly || !poly_words || !tex || !tex_words) {
+    if (!poly || !tex || !poly_words || !tex_words) {
         static bool warned;
         if (!warned) {
-            fprintf(stderr, "[geo] Polygon or texture ROM missing; 3D disabled\n");
+            fprintf(stderr, "[geo] Polygon or texture ROM missing or short; 3D disabled\n");
             warned = true;
         }
         return false;
@@ -976,8 +983,7 @@ static bool geo_bind_roms(void)
     s_raster->texture_rom = tex;
     s_raster->texture_rom_mask = tex_words - 1;
 
-    printf("[geo] Bound polygon ROM (%u words), texture ROM (%u words)\n",
-           poly_words, tex_words);
+    printf("[geo] Bound polygon and texture ROMs\n");
     return true;
 }
 
@@ -1025,26 +1031,125 @@ uint32_t geo_polygon_count(void)
 
 static void model2_3d_project(polygon_t *poly)
 {
+    int xoff, yoff;
+    video_get_crtc_offsets(&xoff, &yoff);
+
     for (int i = 0; i < poly->num_vertices; i++) {
-        poly->v[i].x = CRTC_XOFFSET + poly->center[0]
+        poly->v[i].x = xoff + poly->center[0]
                      + (poly->v[i].x / (poly->v[i].pz + FLT_MIN));
-        poly->v[i].y = ((384 - poly->center[1]) + CRTC_YOFFSET)
+        poly->v[i].y = ((384 - poly->center[1]) + yoff)
                      - (poly->v[i].y / (poly->v[i].pz + FLT_MIN));
     }
 }
 
 /*
- * Flat-shaded triangle fill into framebuffer VRAM.
+ * Colour.
  *
- * ponytail: no texturing, no per-pixel z. Polygons already arrive sorted into
- * z buckets and are drawn back to front, which is enough to get the scene's
- * shape on screen; the texture path is the next piece of work, and the
- * per-vertex u/v are already carried through the pipeline for it.
+ * Nothing on this hardware picks an RGB value directly. A polygon names a
+ * palette entry, which selects one of 32 ramps per channel in the colour
+ * translate RAM, and the pixel's luma indexes along that ramp. Textured pixels
+ * derive their luma from the texel through the luma RAM; untextured ones use
+ * the polygon's own luma. Then everything goes through a gamma curve.
+ *
+ * From model2rd.ipp draw_scanline_solid / draw_scanline_tex.
+ */
+#define COLORXLAT_R 0x0000
+#define COLORXLAT_G 0x2000      /* 0x4000 bytes / 2 */
+#define COLORXLAT_B 0x4000      /* 0x8000 bytes / 2 */
+
+static uint8_t s_gamma[256];
+
+static void build_gamma_table(void)
+{
+    /* MAME's colour-space conversion; a real cabinet's monitor calibration
+     * varied per game. */
+    for (int i = 0; i < 256; i++) {
+        double v = ((double)i - 64.0) * 255.0 / 191.0;
+        s_gamma[i] = (uint8_t)(v < 0.0 ? 0.0 : v);
+    }
+}
+
+/* Everything the rasterizer needs for one polygon, resolved once up front. */
+typedef struct {
+    const uint16_t *ramp_r, *ramp_g, *ramp_b;   /* already offset by colour */
+    const uint8_t  *lumaram;
+    uint32_t        lumabase;
+    uint32_t        poly_luma;
+
+    bool            textured;
+    const uint32_t *sheet;
+    uint32_t        texx, texy;
+    uint32_t        texwidth, texheight;
+    uint8_t         wrapx, wrapy, mirrorx, mirrory;
+} shading_t;
+
+static uint32_t shade(const shading_t *sh, uint32_t luma)
+{
+    if (luma > 0x3F) luma = 0x3F;
+
+    uint32_t r = s_gamma[sh->ramp_r[luma] & 0xFF];
+    uint32_t g = s_gamma[sh->ramp_g[luma] & 0xFF];
+    uint32_t b = s_gamma[sh->ramp_b[luma] & 0xFF];
+
+    return (r << 16) | (g << 8) | b;
+}
+
+/*
+ * One 4-bit texel. Texture sheets are addressed as 2048x1024 but stored as
+ * 1024x2048, so the right half wraps into the lower half with the y bit
+ * flipped. Two texels per byte, four per 16-bit unit, and the sheet is read as
+ * 32-bit words.
+ */
+static uint32_t get_texel(uint32_t base_x, uint32_t base_y, int x, int y,
+                          const uint32_t *sheet)
+{
+    int x2 = (int)base_x + x;
+    int y2 = (int)base_y + y;
+
+    if (x2 >= 1024) {
+        x2 -= 1024;
+        y2 ^= 1024;
+    }
+
+    uint32_t offset = (((uint32_t)y2 / 2) * 512) + ((uint32_t)x2 / 2);
+    uint32_t texel = sheet[offset >> 1];
+
+    if (offset & 1) texel >>= 16;
+    if ((y & 1) == 0) texel >>= 8;
+    if ((x & 1) == 0) texel >>= 4;
+
+    return texel & 0x0F;
+}
+
+/* Apply the header's wrap/mirror rules to a texture coordinate. */
+static int wrap_coord(int c, uint32_t size, uint8_t wrap, uint8_t mirror)
+{
+    if (mirror) {
+        uint32_t period = size * 2;
+        uint32_t m = (uint32_t)c & (period - 1);
+        return (int)(m < size ? m : period - 1 - m);
+    }
+    if (wrap)
+        return (int)((uint32_t)c & (size - 1));
+
+    if (c < 0) return 0;
+    if ((uint32_t)c >= size) return (int)size - 1;
+    return c;
+}
+
+/*
+ * Flat or textured triangle fill.
+ *
+ * ponytail: point sampling, no bilinear filter, no mipmaps and no
+ * microtexture. Texture coordinates are perspective correct - u/z, v/z and 1/z
+ * interpolate linearly in screen space, which is what the geometry stage
+ * already prepared them for - so the mapping itself is right; what is missing
+ * is only the filtering MAME applies on top.
  */
 static void fill_triangle(const vertex_t *a, const vertex_t *b, const vertex_t *c,
-                          uint16_t colour, const int16_t *viewport)
+                          const shading_t *sh, const int16_t *viewport)
 {
-    uint16_t *fb = s_destmap;
+    uint32_t *fb = s_destmap;
     if (!fb) return;
 
     int min_x = (int)floorf(fminf(fminf(a->x, b->x), c->x));
@@ -1052,9 +1157,12 @@ static void fill_triangle(const vertex_t *a, const vertex_t *b, const vertex_t *
     int min_y = (int)floorf(fminf(fminf(a->y, b->y), c->y));
     int max_y = (int)ceilf (fmaxf(fmaxf(a->y, b->y), c->y));
 
-    /* Clip to the viewport and to the framebuffer. */
-    int vx0 = viewport[0], vy0 = viewport[1];
-    int vx1 = viewport[2], vy1 = viewport[3];
+    /* The viewport is in the projected space, y measured from the bottom. */
+    int xoff, yoff;
+    video_get_crtc_offsets(&xoff, &yoff);
+
+    int vx0 = viewport[0] + xoff, vx1 = viewport[2] + xoff;
+    int vy0 = (384 - viewport[3]) + yoff, vy1 = (384 - viewport[1]) + yoff;
     if (vx1 <= vx0 || vy1 <= vy0) { vx0 = 0; vy0 = 0; vx1 = FB_WIDTH; vy1 = FB_HEIGHT; }
 
     if (min_x < vx0) min_x = vx0;
@@ -1069,52 +1177,101 @@ static void fill_triangle(const vertex_t *a, const vertex_t *b, const vertex_t *
 
     float ax = a->x, ay = a->y, bx = b->x, by = b->y, cx = c->x, cy = c->y;
     float area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-    if (fabsf(area) < 1e-6f) return;
+    if (!(fabsf(area) > 1e-6f)) return;
     float inv_area = 1.0f / area;
+
+    /* Untextured polygons are one colour for the whole surface. */
+    uint32_t flat = sh->textured ? 0 : shade(sh, sh->poly_luma >> 2);
 
     for (int y = min_y; y < max_y; y++) {
         float py = (float)y + 0.5f;
-        uint16_t *row = fb + (size_t)y * FB_STRIDE;
+        uint32_t *row = fb + (size_t)y * FB_STRIDE;
 
         for (int x = min_x; x < max_x; x++) {
             float px = (float)x + 0.5f;
 
-            float w0 = ((bx - ax) * (py - ay) - (by - ay) * (px - ax)) * inv_area;
+            /* Barycentric weights: w1 and w2 for b and c, the rest for a. */
             float w1 = ((px - ax) * (cy - ay) - (py - ay) * (cx - ax)) * inv_area;
+            float w2 = ((bx - ax) * (py - ay) - (by - ay) * (px - ax)) * inv_area;
 
-            if (w0 < 0.0f || w1 < 0.0f || (w0 + w1) > 1.0f)
+            if (w1 < 0.0f || w2 < 0.0f || (w1 + w2) > 1.0f)
                 continue;
 
-            row[x] = colour;
+            if (row[x])
+                continue;       /* already covered by nearer geometry */
+
+            if (!sh->textured) {
+                    row[x] = flat | 0xFF000000u;
+                continue;
+            }
+
+            float w0 = 1.0f - w1 - w2;
+
+            /* These three are affine in screen space, which is what makes the
+             * texture mapping perspective correct. */
+            float ooz = w0 * a->pz + w1 * b->pz + w2 * c->pz;
+            float uoz = w0 * a->pu + w1 * b->pu + w2 * c->pu;
+            float voz = w0 * a->pv + w1 * b->pv + w2 * c->pv;
+
+            if (ooz <= 0.0f)
+                continue;
+
+            float z = 1.0f / ooz;
+            int u = (int)(uoz * z);
+            int v = (int)(voz * z);
+
+            u = wrap_coord(u, sh->texwidth,  sh->wrapx, sh->mirrorx);
+            v = wrap_coord(v, sh->texheight, sh->wrapy, sh->mirrory);
+
+            uint32_t texel = get_texel(sh->texx, sh->texy, u, v, sh->sheet);
+
+            /* The texel picks an entry in the luma translation window, scaled
+             * by the polygon's own luma. */
+            uint32_t t = texel << 4;
+            uint32_t luma = (uint32_t)sh->lumaram[(sh->lumabase + (t >> 1)) & 0x7FFF]
+                          * sh->poly_luma / 256;
+
+            row[x] = shade(sh, luma) | 0xFF000000u;
         }
     }
 }
 
-/*
- * Colour for a polygon, from its texture header and luma.
- *
- * ponytail: the real path samples a texture and runs the result through the
- * colour-translate RAM. Until the texture unit exists, shade by luma so the
- * geometry reads as lit surfaces rather than flat silhouettes, tinted by the
- * header so adjacent materials stay distinguishable.
- */
-static uint16_t polygon_colour(const polygon_t *poly)
+/* Resolve a polygon's texture header into everything the fill loop needs. */
+static void setup_shading(const polygon_t *poly, shading_t *sh)
 {
-    uint32_t luma = poly->luma;
-    if (luma > 255) luma = 255;
+    const uint16_t *palram = video_get_palram();
+    const uint16_t *xlat = video_get_colorxlat();
 
-    uint32_t level = (luma >> 3) & 0x1F;
-    if (level < 4) level = 4;       /* keep unlit faces visible */
+    /* bit 14 selects textured, bit 13 translucent. */
+    uint32_t renderer = (poly->texheader[0] >> 13) & 3;
 
-    /* A cheap hash of the texture header gives neighbouring materials
-     * different tints without pretending to be the real palette. */
-    uint32_t tint = (poly->texheader[2] ^ poly->texheader[0]) & 0x7;
+    uint32_t colorbase = (poly->texheader[3] >> 6) & 0x3FF;
+    uint32_t colour = palram[(colorbase + 0x1000) & 0x1FFF] & 0x7FFF;
 
-    uint32_t r = level;
-    uint32_t g = (tint & 1) ? level : (level * 3) / 4;
-    uint32_t b = (tint & 2) ? level : (level * 3) / 4;
+    sh->ramp_r = xlat + COLORXLAT_R + (((colour >> 0)  & 0x1F) << 8);
+    sh->ramp_g = xlat + COLORXLAT_G + (((colour >> 5)  & 0x1F) << 8);
+    sh->ramp_b = xlat + COLORXLAT_B + (((colour >> 10) & 0x1F) << 8);
 
-    return (uint16_t)(r | (g << 5) | (b << 10));
+    sh->lumaram   = video_get_lumaram();
+    sh->lumabase  = (poly->texheader[1] & 0xFF) << 7;
+    sh->poly_luma = poly->luma;
+    sh->textured  = (renderer & 2) != 0;
+
+    if (!sh->textured)
+        return;
+
+    sh->mirrorx = (poly->texheader[0] >> 8) & 1;
+    sh->mirrory = (poly->texheader[0] >> 9) & 1;
+    /* Smooth wrapping is disabled when mirroring is on. */
+    sh->wrapx = ((poly->texheader[0] >> 6) & 1) & ~sh->mirrorx;
+    sh->wrapy = ((poly->texheader[0] >> 7) & 1) & ~sh->mirrory;
+
+    sh->sheet = video_get_texture_ram((poly->texheader[2] & 0x1000) ? 1 : 0);
+
+    sh->texwidth  = 32u << ((poly->texheader[0] >> 0) & 0x7);
+    sh->texheight = 32u << ((poly->texheader[0] >> 3) & 0x7);
+    sh->texx = 32u * ((poly->texheader[2] >> 0) & 0x3F);
+    sh->texy = 32u * ((poly->texheader[2] >> 6) & 0x1F);
 }
 
 void geo_render_polygons(void)
@@ -1123,7 +1280,7 @@ void geo_render_polygons(void)
     if (!raster || !s_destmap)
         return;
 
-    memset(s_destmap, 0, (size_t)FB_STRIDE * FB_HEIGHT * sizeof(uint16_t));
+    memset(s_destmap, 0, (size_t)FB_STRIDE * FB_HEIGHT * sizeof(uint32_t));
 
     if (raster->poly_list_index == 0)
         return;
@@ -1134,14 +1291,26 @@ void geo_render_polygons(void)
 
             while (poly) {
                 if (poly->window == window) {
+                    shading_t sh;
+                    memset(&sh, 0, sizeof(sh));
+                    setup_shading(poly, &sh);
+
                     model2_3d_project(poly);
 
-                    uint16_t colour = polygon_colour(poly);
+                    /* Textured polygons interpolate u/z, v/z and 1/z. The
+                     * eighth is the hardware's fixed texture coordinate scale
+                     * (model2_3d_render). */
+                    if (sh.textured) {
+                        for (int i = 0; i < poly->num_vertices; i++) {
+                            poly->v[i].pz = 1.0f / (poly->v[i].pz + FLT_MIN);
+                            poly->v[i].pu = poly->v[i].pu * poly->v[i].pz * (1.0f / 8.0f);
+                            poly->v[i].pv = poly->v[i].pv * poly->v[i].pz * (1.0f / 8.0f);
+                        }
+                    }
 
-                    /* Fan the (already convex, already clipped) polygon. */
                     for (int i = 1; i + 1 < poly->num_vertices; i++)
                         fill_triangle(&poly->v[0], &poly->v[i], &poly->v[i + 1],
-                                      colour, poly->viewport);
+                                      &sh, poly->viewport);
                 }
                 poly = poly->next;
             }
@@ -1162,7 +1331,7 @@ void geo_init(void)
         return;
     }
 
-    s_destmap = (uint16_t *)calloc((size_t)FB_STRIDE * FB_HEIGHT, sizeof(uint16_t));
+    s_destmap = (uint32_t *)calloc((size_t)FB_STRIDE * FB_HEIGHT, sizeof(uint32_t));
     s_raster->poly_list = (polygon_t *)calloc(MAX_POLYGONS, sizeof(polygon_t));
     if (!s_raster->poly_list || !s_destmap) {
         fprintf(stderr, "[geo] Out of memory for the polygon list\n");
@@ -1171,6 +1340,7 @@ void geo_init(void)
 
     /* The ROMs are loaded after init, so geo_bind_roms picks them up on the
      * first parse rather than here. */
+    build_gamma_table();
     s_raster->master_z_clip = 0xFF;   /* z-clip disabled until the game sets it */
 
     printf("[geo] Geometry engine initialized\n");
@@ -1185,7 +1355,7 @@ void geo_shutdown(void)
 }
 
 /* The rendered 3D bitmap, 512 pixels per row, 0 where nothing was drawn. */
-const uint16_t *geo_get_destmap(void)
+const uint32_t *geo_get_destmap(void)
 {
     return s_destmap;
 }

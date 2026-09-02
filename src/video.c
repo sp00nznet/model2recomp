@@ -19,7 +19,7 @@ static uint16_t *s_fbvramA = NULL;      /* 512x400 x 16bpp bank A */
 static uint16_t *s_fbvramB = NULL;      /* 512x400 x 16bpp bank B */
 static uint32_t *s_textureram0 = NULL;  /* 2MB texture RAM 0 */
 static uint32_t *s_textureram1 = NULL;  /* 2MB texture RAM 1 */
-static uint8_t  *s_lumaram = NULL;      /* 128KB luma RAM */
+static uint8_t  *s_lumaram = NULL;      /* 32KB luma RAM (one byte per dword slot) */
 static uint16_t *s_palram = NULL;       /* 16KB palette RAM */
 static uint16_t *s_colorxlat = NULL;    /* 48KB color translate RAM */
 static uint8_t  *s_tile_ram = NULL;     /* 64KB System 24 tile RAM */
@@ -49,7 +49,7 @@ void video_init(void)
     s_fbvramB      = (uint16_t *)calloc(1, 512 * 400 * 2);
     s_textureram0  = (uint32_t *)calloc(1, 0x200000);  /* 2MB */
     s_textureram1  = (uint32_t *)calloc(1, 0x200000);  /* 2MB */
-    s_lumaram      = (uint8_t *)calloc(1, 0x20000);    /* 128KB */
+    s_lumaram      = (uint8_t *)calloc(1, 0x8000);     /* 32KB */
     s_palram       = (uint16_t *)calloc(1, 0x4000);    /* 16KB */
     s_colorxlat    = (uint16_t *)calloc(1, 0xC000);    /* 48KB */
     s_tile_ram     = (uint8_t *)calloc(1, 0x10000);    /* 64KB */
@@ -288,15 +288,27 @@ void fbvram_bankB_write(uint32_t offset, uint16_t data)
 
 /* --- Texture RAM --- */
 
-void tex0_write(uint32_t offset, uint32_t data)
+/*
+ * Texture RAM writes carry 16 bits each, and two consecutive CPU words pack
+ * into one storage dword - even offsets into the low half, odd into the high
+ * (MAME model2_tgp_state::tex0_w). Storing a full 32-bit word per dword instead
+ * leaves every upper half zero, which blanks half of every texture and makes
+ * surfaces render as flat colour.
+ */
+static void texram_write(uint32_t *ram, uint32_t offset, uint32_t data)
 {
-    if (offset < 0x200000 / 4) s_textureram0[offset] = data;
+    uint32_t index = offset >> 1;
+    if (index >= 0x200000 / 4)
+        return;
+
+    if (offset & 1)
+        ram[index] = (ram[index] & 0x0000FFFF) | ((data & 0xFFFF) << 16);
+    else
+        ram[index] = (ram[index] & 0xFFFF0000) | (data & 0xFFFF);
 }
 
-void tex1_write(uint32_t offset, uint32_t data)
-{
-    if (offset < 0x200000 / 4) s_textureram1[offset] = data;
-}
+void tex0_write(uint32_t offset, uint32_t data) { texram_write(s_textureram0, offset, data); }
+void tex1_write(uint32_t offset, uint32_t data) { texram_write(s_textureram1, offset, data); }
 
 /* --- System 24 tilemaps --- */
 
@@ -326,8 +338,30 @@ void char_write(uint32_t offset, uint16_t data)
         *(uint16_t *)(s_char_ram + offset * 2) = data;
 }
 
-void tile_xhout_write(uint16_t data) { /* TODO */ }
-void tile_xvout_write(uint16_t data) { /* TODO */ }
+/*
+ * CRT horizontal/vertical sync position. The System 24 tile device forwards
+ * these, and the 3D projection uses them to place the scene inside the visible
+ * area (model2_state::horizontal_sync_w / vertical_sync_w). The constants are
+ * MAME's; the defaults below are the renderer's initial offsets, used until the
+ * game programs the CRTC.
+ */
+static int s_crtc_xoffset = 90;
+static int s_crtc_yoffset = -8;
+
+void tile_xhout_write(uint16_t data) { s_crtc_xoffset = 84 + (int16_t)data; }
+void tile_xvout_write(uint16_t data) { s_crtc_yoffset = 130 + (int16_t)data; }
+
+void video_get_crtc_offsets(int *x, int *y)
+{
+    if (x) *x = s_crtc_xoffset;
+    if (y) *y = s_crtc_yoffset;
+}
+
+/* Direct access for the rasterizer, which reads these every pixel. */
+const uint16_t *video_get_palram(void)     { return s_palram; }
+const uint16_t *video_get_colorxlat(void)  { return s_colorxlat; }
+const uint8_t  *video_get_lumaram(void)    { return s_lumaram; }
+const uint32_t *video_get_texture_ram(int bank) { return bank ? s_textureram1 : s_textureram0; }
 
 /* --- Palette --- */
 
@@ -363,13 +397,13 @@ void zclip_write(uint32_t data)
 
 uint8_t lumaram_read(uint32_t offset)
 {
-    if (offset < 0x20000) return s_lumaram[offset];
+    if (offset < 0x8000) return s_lumaram[offset];
     return 0;
 }
 
 void lumaram_write(uint32_t offset, uint8_t data)
 {
-    if (offset < 0x20000) s_lumaram[offset] = data;
+    if (offset < 0x8000) s_lumaram[offset] = data;
 }
 
 /* --- System 24 tilemap rendering ---
@@ -486,17 +520,21 @@ void video_render_frame(void)
      * The 3D scene, over the back tilemaps and under the front ones. Only
      * pixels the rasterizer actually touched are copied; zero means nothing
      * was drawn there, so the tilemap below shows through.
-     * Format: xBBBBBGGGGGRRRRR, red in the low bits.
      */
-    const uint16_t *scene = geo_get_destmap();
+    const uint32_t *scene = geo_get_destmap();
     if (scene) {
         for (int y = 0; y < FB_HEIGHT; y++) {
-            const uint16_t *src = scene + (size_t)y * 512;
+            const uint32_t *src = scene + (size_t)y * 512;
             uint8_t *dst = s_framebuffer + (size_t)y * FB_WIDTH * 4;
 
             for (int x = 0; x < FB_WIDTH; x++) {
-                if (!src[x]) continue;
-                *(uint32_t *)(dst + x * 4) = palette_rgbx(src[x]);
+                uint32_t p = src[x];
+                if (!p) continue;
+                /* The rasterizer already produced 8-bit RGB. */
+                dst[x * 4 + 0] = (uint8_t)(p >> 16);
+                dst[x * 4 + 1] = (uint8_t)(p >> 8);
+                dst[x * 4 + 2] = (uint8_t)p;
+                dst[x * 4 + 3] = 0xFF;
             }
         }
     }

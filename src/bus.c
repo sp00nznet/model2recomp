@@ -300,7 +300,9 @@ uint32_t bus_read32(uint32_t addr)
 
     /* Luma RAM: 0x12800000-0x1281FFFF */
     if (addr >= 0x12800000 && addr < 0x12820000) {
-        return (uint32_t)lumaram_read(addr - 0x12800000);
+        /* Only the low byte of each 32-bit slot is luma RAM (MAME maps it
+         * umask32 0x000000ff), so the index is a dword index. */
+        return (uint32_t)lumaram_read((addr - 0x12800000) >> 2);
     }
 
     /* Unmapped */
@@ -583,7 +585,7 @@ void bus_write32(uint32_t addr, uint32_t val)
 
     /* Luma RAM: 0x12800000-0x1281FFFF */
     if (addr >= 0x12800000 && addr < 0x12820000) {
-        lumaram_write(addr - 0x12800000, (uint8_t)val);
+        lumaram_write((addr - 0x12800000) >> 2, (uint8_t)val);
         return;
     }
 

@@ -311,6 +311,7 @@ uint32_t model2recomp_field_sync(void)
              * test that exits cleanly still tells you nothing about what was
              * on screen; this does. */
             const char *shot = getenv("MODEL2_SCREENSHOT");
+
             if (shot) model2recomp_save_ppm(shot);
             quit = true;
         }

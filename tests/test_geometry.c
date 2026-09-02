@@ -54,7 +54,7 @@ static uint32_t f2u(float f)
 
 static int count_drawn_pixels(void)
 {
-    const uint16_t *map = geo_get_destmap();
+    const uint32_t *map = geo_get_destmap();
     int n = 0;
     if (!map) return 0;
 
@@ -157,7 +157,7 @@ static const pt2_t TRI_C = { 300.0f, 240.0f };
 
 static bool pixel_set(int x, int y)
 {
-    const uint16_t *map = geo_get_destmap();
+    const uint32_t *map = geo_get_destmap();
     return map && map[(size_t)y * FB_STRIDE + x] != 0;
 }
 

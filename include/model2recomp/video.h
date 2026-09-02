@@ -38,6 +38,15 @@ uint32_t geo_prg_read(uint32_t offset);
 /* Byte offset in buffer RAM where the geometry command stream begins. */
 uint32_t geo_read_start_address(void);
 
+/* CRT sync offsets, which position the 3D scene in the visible area. */
+void video_get_crtc_offsets(int *x, int *y);
+
+/* Direct access for the rasterizer. */
+const uint16_t *video_get_palram(void);
+const uint16_t *video_get_colorxlat(void);
+const uint8_t  *video_get_lumaram(void);
+const uint32_t *video_get_texture_ram(int bank);
+
 /* --- Geometry engine / 3D rasterizer (geometry.c) --- */
 
 void geo_init(void);
@@ -50,8 +59,8 @@ void geo_parse(void);
 /* Project and rasterize the polygon list into the 3D bitmap. */
 void geo_render_polygons(void);
 
-/* The rendered 3D bitmap: 512 pixels per row, 16bpp, 0 where nothing drawn. */
-const uint16_t *geo_get_destmap(void);
+/* The rendered 3D bitmap: 512 pixels per row, XRGB8888, 0 where nothing drawn. */
+const uint32_t *geo_get_destmap(void);
 
 /* Polygons produced by the last geo_parse. */
 uint32_t geo_polygon_count(void);
