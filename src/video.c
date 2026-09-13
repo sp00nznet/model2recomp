@@ -402,6 +402,8 @@ void lumaram_write(uint32_t offset, uint8_t data)
  * RAM. Note the colour field at bits 7-14 overlaps it - that is the hardware,
  * not a decode mistake: a tile's index partly determines its palette bank. */
 #define TILE_MASK          0x3FFFu
+#define TILE_WINMASK_LO    0x6000u   /* pair 0/1 block mask */
+#define TILE_WINMASK_HI    0x6800u   /* pair 2/3 block mask */
 
 /* Model 2 palette entries are 15-bit, red in the low bits.
  *
@@ -440,55 +442,44 @@ static inline uint16_t tile_word(uint32_t word_offset)
  * same layer contributes to both the behind-3D and in-front-of-3D passes.
  * `opaque` writes pen 0 as well, which is how the bottom layer clears.
  */
-static void tilemap_draw_layer(int layer, int pass, int opaque)
+/*
+ * Draw one tilemap into a clipped region of the screen.
+ *
+ * `win` says which half of a pair this is. The two halves share the screen
+ * through a mask bitmap in tile RAM - one bit per 8-pixel block, four 16-bit
+ * words per scanline, 0x6000 for tilemaps 0 and 1 and 0x6800 for 2 and 3. The
+ * even half draws where a bit is clear and the odd half where it is set, so
+ * between them they cover the screen exactly once. Virtua Cop leaves the mask
+ * zeroed, which means its odd halves draw nothing at all.
+ *
+ * Pass win < 0 to ignore the mask, which is what the window/split modes do.
+ */
+static void tilemap_draw_rect(int layer, int pass, int opaque, int win,
+                              int scroll_x, int scroll_y,
+                              int x0, int y0, int x1, int y1)
 {
-    uint16_t hscr = tile_word(TILE_HSCROLL + layer);
-    uint16_t vscr = tile_word(TILE_VSCROLL + layer);
-
-    if (vscr & 0x8000)
-        return; /* layer disabled */
-
-    {   /* MODEL2_NOLAYER=<bitmask> drops layers, to see who paints what. */
-        const char *nl = getenv("MODEL2_NOLAYER");
-        if (nl && (strtol(nl, NULL, 0) & (1 << layer)))
-            return;
-    }
-
-    /*
-     * The four tilemaps are two pairs: a "screen" half (even) and a "window"
-     * half (odd). The window half is not a layer of its own. In normal mode
-     * segaic24.cpp's draw_common never touches it at all - it draws only
-     * tile_layer[layer] - and only when the pair's control word selects a
-     * split (bits 13-14) does it draw both halves, each clipped to its own
-     * region of the screen.
-     *
-     * Drawing the window half unconditionally is what put a solid fill over
-     * everything: Virtua Cop's warning screen fills tilemap 1 with one solid
-     * tile, and the whole screen - text, 3D and all - vanished behind it.
-     *
-     * ponytail: the odd half is skipped in both modes, which loses whatever
-     * belongs inside a window but keeps everything else. Implementing the
-     * split means draw_common's four cases plus per-line scroll off hscr
-     * bit 15.
-     */
-    if (layer & 1)
-        return;
-
-    /* ponytail: plain scroll only. Per-line scroll (hscr bit 15) is in
-     * draw_common too. */
-    int scroll_x = hscr & 0x1FF;
-    int scroll_y = vscr & 0x1FF;
-
     const uint32_t names = TILE_NAME_TABLE(layer);
+    const uint32_t maskbase = (layer & 2) ? TILE_WINMASK_HI : TILE_WINMASK_LO;
 
-    for (int y = 0; y < FB_HEIGHT; y++) {
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > FB_WIDTH)  x1 = FB_WIDTH;
+    if (y1 > FB_HEIGHT) y1 = FB_HEIGHT;
+
+    for (int y = y0; y < y1; y++) {
         /* The tilemap is 64x64 tiles = 512x512 pixels, and wraps. */
         int src_y = (y + scroll_y) & 0x1FF;
         int tile_row = src_y >> 3;
         int fine_y = src_y & 7;
         uint8_t *dst_row = s_framebuffer + (size_t)y * FB_WIDTH * 4;
 
-        for (int x = 0; x < FB_WIDTH; x++) {
+        for (int x = x0; x < x1; x++) {
+            if (win >= 0) {
+                uint16_t m = tile_word(maskbase + (uint32_t)y * 4u + (x >> 7));
+                if ((((m >> (15 - ((x >> 3) & 15))) & 1) != 0) != (win != 0))
+                    continue;
+            }
+
             int src_x = (x + scroll_x) & 0x1FF;
             uint16_t name = tile_word(names + tile_row * 64 + (src_x >> 3));
 
@@ -508,6 +499,66 @@ static void tilemap_draw_layer(int layer, int pass, int opaque)
             *(uint32_t *)(dst_row + x * 4) = palette_rgbx(s_palram[pal_index]);
         }
     }
+}
+
+/*
+ * segaic24.cpp's draw_common: one tilemap of a pair, for one priority pass.
+ *
+ * ponytail: no per-line scroll. When bit 15 of the horizontal scroll register
+ * is set the scroll comes from a table at 0x4000, a different value per
+ * scanline. Virtua Cop never sets it.
+ */
+static void tilemap_draw_layer(int layer, int pass, int opaque)
+{
+    uint16_t hscr = tile_word(TILE_HSCROLL + layer);
+    uint16_t vscr = tile_word(TILE_VSCROLL + layer);
+    uint16_t ctrl = tile_word(TILE_VSCROLL + (layer & 2));
+
+    if (vscr & 0x8000)
+        return; /* layer disabled */
+
+    {   /* MODEL2_NOLAYER=<bitmask> drops layers, to see who paints what. */
+        const char *nl = getenv("MODEL2_NOLAYER");
+        if (nl && (strtol(nl, NULL, 0) & (1 << layer)))
+            return;
+    }
+
+    /* The scroll registers hold the negated source origin. */
+    int scroll_x = (-(int)hscr) & 0x1FF;
+    int scroll_y = ((int)vscr) & 0x1FF;
+
+    if (ctrl & 0x6000) {
+        /*
+         * Window/split. The pair is two views divided by a line, and the even
+         * half's call draws both - so the odd half's own call does nothing.
+         */
+        int first, second;
+
+        if (layer & 1)
+            return;
+
+        if (((ctrl & 0x6000) >> 13) == 1) {
+            int v = (-(int)vscr) & 0x1FF;
+            first = layer; second = layer ^ 1;
+            if (!((-(int)vscr) & 0x200)) { first = layer ^ 1; second = layer; }
+            tilemap_draw_rect(first,  pass, opaque, -1, scroll_x, scroll_y,
+                              0, 0, FB_WIDTH, v);
+            tilemap_draw_rect(second, pass, opaque, -1, scroll_x, scroll_y,
+                              0, v, FB_WIDTH, FB_HEIGHT);
+        } else {
+            int h = hscr & 0x1FF;
+            first = layer; second = layer ^ 1;
+            if (!(hscr & 0x200)) { first = layer ^ 1; second = layer; }
+            tilemap_draw_rect(first,  pass, opaque, -1, scroll_x, scroll_y,
+                              0, 0, h, FB_HEIGHT);
+            tilemap_draw_rect(second, pass, opaque, -1, scroll_x, scroll_y,
+                              h, 0, FB_WIDTH, FB_HEIGHT);
+        }
+        return;
+    }
+
+    tilemap_draw_rect(layer, pass, opaque, layer & 1, scroll_x, scroll_y,
+                      0, 0, FB_WIDTH, FB_HEIGHT);
 }
 
 /* --- Rendering --- */

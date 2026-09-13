@@ -22,9 +22,18 @@ BSD-3-Clause — ported from MAME
 
     src/geometry.c              sega/model2_v.cpp, sega/model2rd.ipp
     include/model2recomp/*      (geometry engine, clipping, z-sort,
-                                 projection, texel fetch, colour translate)
+                                 projection, colour translate, and the texel
+                                 path: bilinear filtering, mipmap selection
+                                 and trilinear blending, microtexture,
+                                 translucency and the checkerboard)
                                 (c) R. Belmont; Olivier Galibert; ElSemi;
                                     Angelo Salese; Matthew Daniels
+
+                                video/voodoo_render.cpp
+                                  (fast_log2 - the exponent-plus-table log2
+                                   the mip selection needs once per pixel;
+                                   model2rd.ipp takes it from there too)
+                                (c) Aaron Giles
 
     src/copro.c                 cpu/mb86233/mb86233.cpp
     include/model2recomp/copro.h  (MB86233 instruction set, ALU, addressing)
@@ -44,7 +53,9 @@ BSD-3-Clause — ported from MAME
                                     Angelo Salese; Matthew Daniels
 
                                 sega/segaic24.cpp
-                                  (System 24 tilemap layer decode)
+                                  (System 24 tilemap layer decode, the
+                                   per-8-pixel mask that pairs the screen and
+                                   window halves, and the window/split modes)
                                 (c) Olivier Galibert
 
     src/bus.c                   sega/model2.cpp
