@@ -1088,6 +1088,8 @@ typedef struct {
     uint32_t        poly_luma;
 
     bool            textured;
+    bool            translucent;
+    uint8_t         checker;
     const uint32_t *sheet;
     uint32_t        texx, texy;
     uint32_t        texwidth, texheight;
@@ -1135,17 +1137,21 @@ static uint32_t get_texel(uint32_t base_x, uint32_t base_y, int x, int y,
 /* Apply the header's wrap/mirror rules to a texture coordinate. */
 static int wrap_coord(int c, uint32_t size, uint8_t wrap, uint8_t mirror)
 {
+    (void)wrap;
     if (mirror) {
         uint32_t period = size * 2;
         uint32_t m = (uint32_t)c & (period - 1);
         return (int)(m < size ? m : period - 1 - m);
     }
-    if (wrap)
-        return (int)((uint32_t)c & (size - 1));
-
-    if (c < 0) return 0;
-    if ((uint32_t)c >= size) return (int)size - 1;
-    return c;
+    /*
+     * Always wrap. The texture's "smooth wrap" bits do not decide whether a
+     * coordinate repeats - model2rd.ipp masks with (tex_width - 1)
+     * unconditionally and uses those bits only to pick how the *bilinear*
+     * filter behaves at the seam. Clamping to the edge texel instead smears
+     * it across everything past the texture, which is what made whole walls
+     * and the ground look like one stretched streak.
+     */
+    return (int)((uint32_t)c & (size - 1));
 }
 
 /*
@@ -1191,6 +1197,10 @@ static void fill_triangle(const vertex_t *a, const vertex_t *b, const vertex_t *
     if (!(fabsf(area) > 1e-6f)) return;
     float inv_area = 1.0f / area;
 
+    /* An untextured translucent polygon has nothing to draw. */
+    if (!sh->textured && sh->translucent)
+        return;
+
     /* Untextured polygons are one colour for the whole surface. */
     uint32_t flat = sh->textured ? 0 : shade(sh, sh->poly_luma >> 2);
 
@@ -1206,6 +1216,10 @@ static void fill_triangle(const vertex_t *a, const vertex_t *b, const vertex_t *
             float w2 = ((bx - ax) * (py - ay) - (by - ay) * (px - ax)) * inv_area;
 
             if (w1 < 0.0f || w2 < 0.0f || (w1 + w2) > 1.0f)
+                continue;
+
+            /* The checkerboard leaves every other pixel of the grid alone. */
+            if (sh->checker && !((x ^ y) & 1))
                 continue;
 
             if (row[x])
@@ -1235,6 +1249,10 @@ static void fill_triangle(const vertex_t *a, const vertex_t *b, const vertex_t *
             v = wrap_coord(v, sh->texheight, sh->wrapy, sh->mirrory);
 
             uint32_t texel = get_texel(sh->texx, sh->texy, u, v, sh->sheet);
+
+            /* On a translucent texture, 0xF is the transparent index. */
+            if (sh->translucent && texel == 0xF)
+                continue;
 
             /* The texel picks an entry in the luma translation window, scaled
              * by the polygon's own luma. */
@@ -1267,6 +1285,17 @@ static void setup_shading(const polygon_t *poly, shading_t *sh)
     sh->lumabase  = (poly->texheader[1] & 0xFF) << 7;
     sh->poly_luma = poly->luma;
     sh->textured  = (renderer & 2) != 0;
+
+    /*
+     * Bit 13 is translucency and bit 15 is the checkerboard. The hardware has
+     * no alpha blend: a translucent *textured* polygon treats texel 0xF as
+     * transparent, a translucent *untextured* one draws nothing at all, and
+     * the checkerboard is a 50% stipple on the pixel grid. Ignoring all three
+     * drew every sprite as an opaque rectangle - the clouds on their square,
+     * the star, and the block over the ammo cylinder.
+     */
+    sh->translucent = (renderer & 1) != 0;
+    sh->checker     = (poly->texheader[0] >> 15) & 1;
 
     if (!sh->textured)
         return;

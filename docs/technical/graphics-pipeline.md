@@ -141,12 +141,44 @@ wraps into the lower half with the y bit flipped. Two 4-bit texels per byte,
 four per 16-bit unit, read as 32-bit words. `get_texel()` in `src/geometry.c`
 does the unpacking.
 
+### Wrapping is not optional
+
+A texture coordinate **always** wraps modulo the texture size:
+`model2rd.ipp` masks with `tex_width - 1` unconditionally. The header's
+"smooth wrap" bits (`texheader[0]` bits 6 and 7) do not decide whether the
+texture repeats - they only pick how the bilinear filter behaves at the seam.
+Clamping to the edge texel instead smears it across everything past the
+texture, which turns a tiled wall or a ground plane into one stretched streak.
+
+Mirroring (bits 8 and 9) reflects with period `2 * size` and disables smooth
+wrapping on that axis.
+
+### Translucency
+
+There is no alpha blend. Three separate mechanisms, from `texheader[0]`:
+
+| Bits | Meaning |
+|---|---|
+| 14 | textured |
+| 13 | translucent |
+| 15 | checkerboard |
+
+- **Translucent and textured**: texel `0xF` is the transparent index and the
+  pixel is discarded. This is how every sprite-like polygon gets its shape -
+  clouds, muzzle flashes, the HUD's revolver cylinder. Draw them without it
+  and each one is an opaque rectangle of its texture's background colour.
+- **Translucent and untextured**: nothing is drawn at all.
+- **Checkerboard**: a 50% stipple on the pixel grid - `(x ^ y) & 1` selects
+  which pixels survive. The hardware's only "half transparent".
+
 ### What is missing
 
-Point sampling only. MAME's `model2rd.ipp` does bilinear filtering, mipmap
+Point sampling. MAME's `model2rd.ipp` does bilinear filtering, mipmap
 selection from the per-polygon LOD, trilinear blending between levels, and
 microtexture blending below LOD 0. None of that is here. Texture LOD *is*
 computed and carried on the polygon; it is simply not used to pick a level.
+Without mipmaps a minified texture aliases, so ground planes and distant
+walls are noisier than the hardware's.
 
 ## Tilemaps
 
