@@ -153,7 +153,20 @@ computed and carried on the polygon; it is simply not used to pick a level.
 Four System 24 layers, 8×8 tiles, 4 bits per pixel, from character RAM at
 `0x01080000` with layer maps in tile RAM at `0x01000000`. They draw in two
 passes — back layers, then the 3D bitmap composited over them, then front
-layers — so the HUD sits over the scene and the sky sits behind it.
+layers — so the HUD sits over the scene and the sky sits behind it. Which pass
+a *tile* belongs to is bit 15 of its name-table word, not a property of the
+layer, so one layer contributes to both.
+
+In the back pass, tilemaps 3 and 2 draw opaque (pen 0 included) and 1 and 0
+transparent, which is what clears the screen.
+
+**Not implemented: the window/split modes.** The four tilemaps are two pairs, a
+"screen" half and a "window" half, and when the control word at the even
+half's vertical-scroll register has bits 13-14 set, the window half is drawn
+clipped inside the screen half rather than on its own. Here the window half is
+simply skipped in that case - drawing it unclipped paints the whole screen.
+Per-line scroll (horizontal-scroll bit 15) is missing for the same reason. Both
+are in segaic24.cpp draw_common.
 
 The 3D bitmap is composited by skipping zero pixels: zero means the rasterizer
 never touched that pixel, so the tilemap below shows through.

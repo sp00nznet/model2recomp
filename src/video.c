@@ -434,9 +434,25 @@ static void tilemap_draw_layer(int layer, int pass, int opaque)
     if (vscr & 0x8000)
         return; /* layer disabled */
 
-    /* ponytail: plain scroll only. Per-line scroll (hscr bit 15) and the
-     * window/split modes (ctrl bits 13-14) are in segaic24.cpp's draw_common
-     * and matter for the in-game HUD, not for the boot and test screens. */
+    /*
+     * Window/split modes. The four tilemaps are two pairs - a "screen" half
+     * and a "window" half - and when the control word selects a split, the
+     * window half is drawn *inside the even half's call*, clipped to the
+     * window, rather than on its own. Drawing it on its own paints the whole
+     * screen: in Virtua Cop that is a solid light grey over the entire game,
+     * which is what the in-game 3D was hiding behind.
+     *
+     * ponytail: the odd half is skipped rather than windowed, which loses
+     * whatever was inside the window and keeps everything else. The real
+     * split is segaic24.cpp's draw_common - four modes, plus per-line scroll
+     * off hscr bit 15.
+     */
+    uint16_t ctrl = tile_word(TILE_VSCROLL + (layer & 2));
+    if ((ctrl & 0x6000) && (layer & 1))
+        return;
+
+    /* ponytail: plain scroll only. Per-line scroll (hscr bit 15) is in
+     * draw_common too. */
     int scroll_x = hscr & 0x1FF;
     int scroll_y = vscr & 0x1FF;
 
@@ -482,7 +498,7 @@ void video_render_frame(void)
      * 3D scene. Layers draw back to front, layer 3 lowest.
      */
     for (int layer = 3; layer >= 0; layer--)
-        tilemap_draw_layer(layer, 0, layer == 3);
+        tilemap_draw_layer(layer, 0, layer >= 2);
 
     /*
      * The 3D scene, over the back tilemaps and under the front ones. Only
@@ -509,6 +525,7 @@ void video_render_frame(void)
 
     for (int layer = 3; layer >= 0; layer--)
         tilemap_draw_layer(layer, 1, 0);
+
 }
 
 const uint8_t *video_get_framebuffer(void)
