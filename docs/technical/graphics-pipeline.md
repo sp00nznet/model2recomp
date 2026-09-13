@@ -171,14 +171,35 @@ There is no alpha blend. Three separate mechanisms, from `texheader[0]`:
 - **Checkerboard**: a 50% stipple on the pixel grid - `(x ^ y) & 1` selects
   which pixels survive. The hardware's only "half transparent".
 
-### What is missing
+### Filtering
 
-Point sampling. MAME's `model2rd.ipp` does bilinear filtering, mipmap
-selection from the per-polygon LOD, trilinear blending between levels, and
-microtexture blending below LOD 0. None of that is here. Texture LOD *is*
-computed and carried on the polygon; it is simply not used to pick a level.
-Without mipmaps a minified texture aliases, so ground planes and distant
-walls are noisier than the hardware's.
+Bilinear, with mipmaps and trilinear blending between levels, following
+`model2rd.ipp`.
+
+The level comes from the depth, not from anything the game says directly:
+
+```
+mml   = -polygon's texlod + log2(z)      log2 to 7 fractional bits
+level = clamp(mml >> 7, 0, max_level)    max_level bottoms out at 2x2
+```
+
+The fractional part of `mml` blends into the next level down. Mip levels
+**alternate between the two texture sheets** - level 0 from the sheet
+`texheader[2]` bit 12 selects, level 1 from the other, and so on - and each
+level's origin is `((texx - 2048) >> level) & 2047`, which is the unchanged
+origin at level 0.
+
+Below level 0 a polygon with the microtexture bit blends in a fixed 128x128
+detail sheet instead, up to almost half, with the strength coming from how far
+past level 0 the pixel is.
+
+`log2` is computed from the float's exponent plus a 128-entry table on the top
+mantissa bits - MAME takes this from `voodoo_render.cpp`. It runs once per
+pixel, which is too often for `logf`.
+
+Filtering is not cosmetic here. Without mipmaps a minified texture aliases into
+noise, and the ground planes and distant walls in Virtua Cop's wharf are almost
+entirely minified.
 
 ## Tilemaps
 

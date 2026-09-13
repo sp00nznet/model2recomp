@@ -1090,10 +1090,14 @@ typedef struct {
     bool            textured;
     bool            translucent;
     uint8_t         checker;
-    const uint32_t *sheet;
+    const uint32_t *sheet[2];       /* mip levels alternate between the two */
     uint32_t        texx, texy;
     uint32_t        texwidth, texheight;
     uint8_t         wrapx, wrapy, mirrorx, mirrory;
+    int32_t         texlod;
+    int32_t         max_level;
+    uint8_t         utex, utexminlod;
+    uint32_t        utexx, utexy;
 } shading_t;
 
 static uint32_t shade(const shading_t *sh, uint32_t luma)
@@ -1135,23 +1139,140 @@ static uint32_t get_texel(uint32_t base_x, uint32_t base_y, int x, int y,
 }
 
 /* Apply the header's wrap/mirror rules to a texture coordinate. */
-static int wrap_coord(int c, uint32_t size, uint8_t wrap, uint8_t mirror)
+static int32_t count_leading_zeros32(uint32_t v)
 {
-    (void)wrap;
-    if (mirror) {
-        uint32_t period = size * 2;
-        uint32_t m = (uint32_t)c & (period - 1);
-        return (int)(m < size ? m : period - 1 - m);
+    if (v == 0) return 32;
+    int32_t n = 0;
+    while (!(v & 0x80000000u)) { v <<= 1; n++; }
+    return n;
+}
+
+/*
+ * Blend two texels held as a pair of 8-bit fields - the texel in bits 0-7 and
+ * the translucency flag in bits 16-23 - so one operation filters both.
+ * model2rd.ipp's LERP.
+ */
+static uint32_t texel_lerp(uint32_t x, uint32_t y, uint32_t a)
+{
+    return (x + (((y - x) * a) >> 8)) & 0x00FF00FFu;
+}
+
+/*
+ * log2 of a float to 8 fractional bits, from the exponent and a table on the
+ * top 7 mantissa bits. MAME takes this from voodoo_render.cpp; the rasterizer
+ * needs it once per pixel to pick a mip level, which is too often for logf.
+ */
+static int32_t fast_log2(float value)
+{
+    static const uint8_t table[128] = {
+          0,   2,   5,   8,  11,  14,  16,  19,  22,  25,  27,  30,  33,  35,  38,  40,
+         43,  46,  48,  51,  53,  56,  58,  61,  63,  65,  68,  70,  73,  75,  77,  80,
+         82,  84,  87,  89,  91,  93,  96,  98, 100, 102, 104, 106, 109, 111, 113, 115,
+        117, 119, 121, 123, 125, 127, 129, 132, 134, 136, 138, 140, 141, 143, 145, 147,
+        149, 151, 153, 155, 157, 159, 161, 162, 164, 166, 168, 170, 172, 173, 175, 177,
+        179, 181, 182, 184, 186, 188, 189, 191, 193, 194, 196, 198, 200, 201, 203, 205,
+        206, 208, 209, 211, 213, 214, 216, 218, 219, 221, 222, 224, 225, 227, 229, 230,
+        232, 233, 235, 236, 238, 239, 241, 242, 244, 245, 247, 248, 250, 251, 253, 254
+    };
+    uint32_t ival;
+
+    if (value < 0.0f)
+        return 0;
+
+    memcpy(&ival, &value, sizeof ival);
+    ival >>= 16;
+
+    return (((int32_t)(ival >> 7) - 127) << 8) | table[ival & 127];
+}
+
+/*
+ * One bilinear texel from a mip level, or from the microtexture at level -1.
+ *
+ * The coordinates are 8.8 fixed point. Mirroring reflects with period twice
+ * the texture size; the wrap bits are *not* what makes a texture repeat - that
+ * is unconditional - they only choose whether the filter runs off the far edge
+ * or clamps at the seam.
+ *
+ * On a translucent polygon each texel carries a flag in bits 16-23 saying it
+ * is not the transparent index 0xF, and a transparent texel borrows its
+ * neighbour's luma so the filter does not drag the background into the edge.
+ */
+static uint32_t fetch_texel_bilinear(const shading_t *sh, int32_t miplevel,
+                                     int32_t u, int32_t v)
+{
+    uint32_t tex_width, tex_height, tex_x, tex_y;
+    const uint32_t *sheet;
+    uint32_t ufrac, vfrac, u0, u1, v0, v1;
+    uint32_t t00, t01, t10, t11, t0x, t1x;
+
+    if (miplevel < 0) {
+        tex_width  = 128;
+        tex_height = 128;
+        tex_x = sh->utexx;
+        tex_y = sh->utexy;
+        sheet = sh->sheet[1];
+        u <<= 1 << sh->utexminlod;
+        v <<= 1 << sh->utexminlod;
+    } else {
+        tex_width  = sh->texwidth  >> miplevel;
+        tex_height = sh->texheight >> miplevel;
+        tex_x = ((sh->texx - 2048u) >> miplevel) & 2047u;
+        tex_y = ((sh->texy - 1024u) >> miplevel) & 1023u;
+        sheet = sh->sheet[miplevel & 1];
+        u >>= miplevel;
+        v >>= miplevel;
     }
-    /*
-     * Always wrap. The texture's "smooth wrap" bits do not decide whether a
-     * coordinate repeats - model2rd.ipp masks with (tex_width - 1)
-     * unconditionally and uses those bits only to pick how the *bilinear*
-     * filter behaves at the seam. Clamping to the edge texel instead smears
-     * it across everything past the texture, which is what made whole walls
-     * and the ground look like one stretched streak.
-     */
-    return (int)((uint32_t)c & (size - 1));
+
+    if (sh->mirrorx && (u & (int32_t)(tex_width  << 8))) u = ~u;
+    if (sh->mirrory && (v & (int32_t)(tex_height << 8))) v = ~v;
+
+    /* Sample from texel centres. */
+    u -= 0x80;
+    v -= 0x80;
+
+    ufrac = (uint32_t)u & 0xFF;
+    vfrac = (uint32_t)v & 0xFF;
+
+    u0 = (uint32_t)(u >> 8) & (tex_width  - 1);
+    u1 = (u0 + 1) & (tex_width  - 1);
+    v0 = (uint32_t)(v >> 8) & (tex_height - 1);
+    v1 = (v0 + 1) & (tex_height - 1);
+
+    if (!sh->wrapx && u1 == 0) {
+        if (ufrac >= 0x80) { u0 = u1; u1++;  ufrac = 0;     }
+        else               { u1 = u0; u0--;  ufrac = 0x100; }
+    }
+    if (!sh->wrapy && v1 == 0) {
+        if (vfrac >= 0x80) { v0 = 0;  v1++;  vfrac = 0;     }
+        else               { v1 = v0; v0--;  vfrac = 0x100; }
+    }
+
+    t00 = get_texel(tex_x, tex_y, (int)u0, (int)v0, sheet) << 4;
+    t01 = get_texel(tex_x, tex_y, (int)u1, (int)v0, sheet) << 4;
+    t10 = get_texel(tex_x, tex_y, (int)u0, (int)v1, sheet) << 4;
+    t11 = get_texel(tex_x, tex_y, (int)u1, (int)v1, sheet) << 4;
+
+    if (sh->translucent) {
+        if (t00 != 0xF0) t00 |= 0x00800000u;
+        if (t01 != 0xF0) t01 |= 0x00800000u;
+        if (t10 != 0xF0) t10 |= 0x00800000u;
+        if (t11 != 0xF0) t11 |= 0x00800000u;
+
+        if (t00 == 0x000000F0u) t00 = t01 & 0xFF;
+        if (t01 == 0x000000F0u) t01 = t00 & 0xFF;
+        if (t10 == 0x000000F0u) t10 = t11 & 0xFF;
+        if (t11 == 0x000000F0u) t11 = t10 & 0xFF;
+    }
+
+    t0x = texel_lerp(t00, t01, ufrac);
+    t1x = texel_lerp(t10, t11, ufrac);
+
+    if (sh->translucent) {
+        if (t0x == 0x000000F0u) t0x = t1x & 0xFF;
+        if (t1x == 0x000000F0u) t1x = t0x & 0xFF;
+    }
+
+    return texel_lerp(t0x, t1x, vfrac);
 }
 
 /*
@@ -1242,21 +1363,43 @@ static void fill_triangle(const vertex_t *a, const vertex_t *b, const vertex_t *
                 continue;
 
             float z = 1.0f / ooz;
-            int u = (int)(uoz * z);
-            int v = (int)(voz * z);
 
-            u = wrap_coord(u, sh->texwidth,  sh->wrapx, sh->mirrorx);
-            v = wrap_coord(v, sh->texheight, sh->wrapy, sh->mirrory);
+            /*
+             * Pick a mip level from the depth. mml is log2 of the texel
+             * footprint in 7 fractional bits, offset by the polygon's own LOD;
+             * its integer part selects the level and its fraction blends into
+             * the next one. Below level 0 the microtexture blends in instead,
+             * up to almost half.
+             */
+            int32_t mml = -sh->texlod + fast_log2(z);
+            int32_t level = mml >> 7;
+            if (level < 0) level = 0;
+            if (level > sh->max_level) level = sh->max_level;
 
-            uint32_t texel = get_texel(sh->texx, sh->texy, u, v, sh->sheet);
+            int32_t u = (int32_t)(uoz * z * 256.0f);
+            int32_t v = (int32_t)(voz * z * 256.0f);
 
-            /* On a translucent texture, 0xF is the transparent index. */
-            if (sh->translucent && texel == 0xF)
-                continue;
+            uint32_t t = fetch_texel_bilinear(sh, level, u, v);
+
+            if (mml > 0 && level < sh->max_level) {
+                uint32_t t2 = fetch_texel_bilinear(sh, level + 1, u, v);
+                t = texel_lerp(t, t2, (uint32_t)((mml & 127) << 1));
+            } else if (sh->utex && mml < 0) {
+                int32_t frac = (-mml) >> sh->utexminlod;
+                uint32_t t2 = fetch_texel_bilinear(sh, -1, u, v);
+                if (frac > 127) frac = 127;
+                t = texel_lerp(t, t2, (uint32_t)frac);
+            }
+
+            /* Less than half opaque is not drawn at all. */
+            if (sh->translucent) {
+                if (t < 0x00400000u)
+                    continue;
+                t &= 0xFF;
+            }
 
             /* The texel picks an entry in the luma translation window, scaled
              * by the polygon's own luma. */
-            uint32_t t = texel << 4;
             uint32_t luma = (uint32_t)sh->lumaram[(sh->lumabase + (t >> 1)) & 0x7FFF]
                           * sh->poly_luma / 256;
 
@@ -1306,12 +1449,29 @@ static void setup_shading(const polygon_t *poly, shading_t *sh)
     sh->wrapx = ((poly->texheader[0] >> 6) & 1) & ~sh->mirrorx;
     sh->wrapy = ((poly->texheader[0] >> 7) & 1) & ~sh->mirrory;
 
-    sh->sheet = video_get_texture_ram((poly->texheader[2] & 0x1000) ? 1 : 0);
+    /* Mip levels alternate between the two texture sheets. */
+    sh->sheet[0] = video_get_texture_ram((poly->texheader[2] & 0x1000) ? 1 : 0);
+    sh->sheet[1] = video_get_texture_ram((poly->texheader[2] & 0x1000) ? 0 : 1);
 
     sh->texwidth  = 32u << ((poly->texheader[0] >> 0) & 0x7);
     sh->texheight = 32u << ((poly->texheader[0] >> 3) & 0x7);
     sh->texx = 32u * ((poly->texheader[2] >> 0) & 0x3F);
     sh->texy = 32u * ((poly->texheader[2] >> 6) & 0x1F);
+
+    /* Microtexture: a fixed 128x128 detail sheet blended in below level 0. */
+    sh->utex       = (poly->texheader[0] >> 12) & 1;
+    sh->utexminlod = (poly->texheader[0] >> 10) & 3;
+    sh->utexx      = ((poly->texheader[2] >> 13) & 1) * 128u;
+    sh->utexy      = ((poly->texheader[2] >> 14) & 3) * 128u;
+
+    sh->texlod = poly->texlod;
+
+    /* Mipmaps go down to 2x2. */
+    {
+        uint32_t smaller = sh->texwidth < sh->texheight ? sh->texwidth
+                                                        : sh->texheight;
+        sh->max_level = 30 - count_leading_zeros32(smaller);
+    }
 }
 
 void geo_render_polygons(void)
