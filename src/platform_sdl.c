@@ -56,12 +56,46 @@ bool platform_init(const char *title, int width, int height, int scale)
 
     SDL_RenderSetLogicalSize(s_renderer, width, height);
 
+    /*
+     * The framebuffer holds red, green, blue, 0xFF in that byte order, which
+     * is the 32-bit value (0xFF << 24) | (b << 16) | (g << 8) | r - and SDL
+     * names packed formats from the most significant byte down, so that is
+     * ABGR8888.
+     *
+     * It was RGBX8888, which reads the same value as red 0xFF, green from our
+     * blue and blue from our green. Every pixel came out with red at full:
+     * on screen that is a solid red pane with the game showing through it,
+     * tinted. Screenshots were unaffected because the PPM writer takes bytes
+     * 0, 1 and 2 straight off the framebuffer, so the two disagreed and only
+     * the window was wrong.
+     */
     s_texture = SDL_CreateTexture(s_renderer,
-        SDL_PIXELFORMAT_RGBX8888, SDL_TEXTUREACCESS_STREAMING,
+        SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING,
         width, height);
     if (!s_texture) {
         fprintf(stderr, "[platform] Texture creation failed: %s\n", SDL_GetError());
         return false;
+    }
+
+    /*
+     * Ask SDL what that format means and check it against how the framebuffer
+     * is packed. Getting this wrong is invisible in screenshots - they are
+     * written straight from the framebuffer - so the window can be wrong on
+     * its own, and stay wrong.
+     */
+    {
+        int bpp;
+        Uint32 rm, gm, bm, am;
+
+        if (!SDL_PixelFormatEnumToMasks(SDL_PIXELFORMAT_ABGR8888, &bpp,
+                                        &rm, &gm, &bm, &am) ||
+            bpp != 32 || rm != 0x000000FFu || gm != 0x0000FF00u ||
+            bm != 0x00FF0000u) {
+            fprintf(stderr, "[platform] ERROR: texture format does not match "
+                            "the framebuffer (r=%08X g=%08X b=%08X)\n",
+                    rm, gm, bm);
+            return false;
+        }
     }
 
     /* Audio setup: 44100 Hz stereo int16 */
