@@ -138,6 +138,9 @@ static raster_state_t *s_raster;
 static geo_state_t    *s_geo;
 static bool            s_render_done;
 
+/* MODEL2_PROBE=x,y - see the fill loop. -1 disables. */
+static int g_probe_x = -1, g_probe_y = -1;
+
 /* The 3D output goes to its own bitmap, not to framebuffer VRAM. The game
  * writes that VRAM itself in render-test mode, and MAME likewise renders to a
  * separate destmap and composites. Non-zero pixels are the drawn ones, which
@@ -1087,6 +1090,7 @@ typedef struct {
     uint32_t        lumabase;
     uint32_t        poly_luma;
 
+    uint16_t        texheader[4];
     bool            textured;
     bool            translucent;
     uint8_t         checker;
@@ -1347,7 +1351,14 @@ static void fill_triangle(const vertex_t *a, const vertex_t *b, const vertex_t *
                 continue;       /* already covered by nearer geometry */
 
             if (!sh->textured) {
-                    row[x] = flat | 0xFF000000u;
+                row[x] = flat | 0xFF000000u;
+                if (g_probe_x == x && g_probe_y == y)
+                    fprintf(stderr, "[probe] %d,%d UNTEXTURED tex=%04X %04X "
+                            "%04X %04X colorbase=%03X polyluma=%u -> %06X\n",
+                            x, y, sh->texheader[0], sh->texheader[1],
+                            sh->texheader[2], sh->texheader[3],
+                            (sh->texheader[3] >> 6) & 0x3FF, sh->poly_luma,
+                            flat);
                 continue;
             }
 
@@ -1404,6 +1415,25 @@ static void fill_triangle(const vertex_t *a, const vertex_t *b, const vertex_t *
                           * sh->poly_luma / 256;
 
             row[x] = shade(sh, luma) | 0xFF000000u;
+
+            /*
+             * MODEL2_PROBE=x,y reports the polygon that wins one pixel, and
+             * everything that decided its colour. First writer wins, so
+             * exactly one polygon answers.
+             */
+            if (g_probe_x == x && g_probe_y == y) {
+                fprintf(stderr, "[probe] %d,%d tex=%04X %04X %04X %04X "
+                        "colorbase=%03X lumabase=%04X polyluma=%u texel=%02X "
+                        "luma=%02u trans=%d checker=%d "
+                        "tw=%u th=%u tx=%u ty=%u lod=%d -> %06X\n",
+                        x, y, sh->texheader[0], sh->texheader[1],
+                        sh->texheader[2], sh->texheader[3],
+                        (sh->texheader[3] >> 6) & 0x3FF, sh->lumabase,
+                        sh->poly_luma, t & 0xFF, luma,
+                        sh->translucent, sh->checker,
+                        sh->texwidth, sh->texheight, sh->texx, sh->texy,
+                        sh->texlod, shade(sh, luma));
+            }
         }
     }
 }
@@ -1416,6 +1446,8 @@ static void setup_shading(const polygon_t *poly, shading_t *sh)
 
     /* bit 14 selects textured, bit 13 translucent. */
     uint32_t renderer = (poly->texheader[0] >> 13) & 3;
+
+    memcpy(sh->texheader, poly->texheader, sizeof(sh->texheader));
 
     uint32_t colorbase = (poly->texheader[3] >> 6) & 0x3FF;
     uint32_t colour = palram[(colorbase + 0x1000) & 0x1FFF] & 0x7FFF;
@@ -1485,6 +1517,8 @@ void geo_render_polygons(void)
      * no new list keeps the bitmap it already has, as MAME's render_polygons
      * does when m_render_done is still set. */
     { const char *e = getenv("MODEL2_SHADE"); g_shade_dump = e ? atoi(e) : 0; }
+    { const char *e = getenv("MODEL2_PROBE");
+      if (e) sscanf(e, "%d,%d", &g_probe_x, &g_probe_y); }
 
     if (s_render_done)
         return;

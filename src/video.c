@@ -29,6 +29,8 @@ static uint16_t *s_colorxlat = NULL;    /* 48KB color translate RAM */
 static uint8_t  *s_tile_ram = NULL;     /* 64KB System 24 tile RAM */
 static uint8_t  *s_char_ram = NULL;     /* 512KB System 24 char RAM */
 
+static int g_tile_probe_x = -1, g_tile_probe_y = -1;
+
 static uint32_t s_render_mode = 0;
 static uint32_t s_videoctl = 0;
 static uint32_t s_zclip = 0;
@@ -497,6 +499,16 @@ static void tilemap_draw_rect(int layer, int pass, int opaque, int win,
 
             uint32_t pal_index = (((name >> 7) & 0xFF) * 16u + pen) & 0x1FFF;
             *(uint32_t *)(dst_row + x * 4) = palette_rgbx(s_palram[pal_index]);
+
+            /* MODEL2_PROBE=x,y: which tile put this pixel here, and why. */
+            if (x == g_tile_probe_x && y == g_tile_probe_y)
+                fprintf(stderr, "[tile] %d,%d layer=%d pass=%d name=%04X "
+                        "tile=%04X bank=%02X pen=%X palidx=%04X pal=%04X "
+                        "-> %06X\n",
+                        x, y, layer, pass, name, name & TILE_MASK,
+                        (name >> 7) & 0xFF, pen, pal_index,
+                        s_palram[pal_index],
+                        palette_rgbx(s_palram[pal_index]) & 0xFFFFFF);
         }
     }
 }
@@ -566,6 +578,15 @@ static void tilemap_draw_layer(int layer, int pass, int opaque)
 void video_render_frame(void)
 {
     if (!s_framebuffer) return;
+
+    {
+        static bool read;
+        if (!read) {
+            const char *e = getenv("MODEL2_PROBE");
+            if (e) sscanf(e, "%d,%d", &g_tile_probe_x, &g_tile_probe_y);
+            read = true;
+        }
+    }
 
     /*
      * Frame composition, following model2_v.cpp: the tilemaps split around the
