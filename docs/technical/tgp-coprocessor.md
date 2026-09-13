@@ -124,7 +124,14 @@ Sixteen entries, of which four are wired to the board:
 | `3` | write | Bank register — bits 22–23 enable the external window, bits 16–23 supply its high address bits |
 
 The external window reaches buffer RAM at `adr & 0x400000`, and the copro data
-ROM socket at `adr & 0x800000` — empty on Virtua Cop, so it reads zero.
+ROM socket at `adr & 0x800000`.
+
+**That socket is not implemented.** `tgp_memory_r()` returns 0 for it, which is
+correct on Virtua Cop — its `copro_data` region is declared and empty — and
+wrong on any title that fills it. Daytona USA puts 4 MB of collision and
+height-map data there. Wiring it up is a ROM region, a load hook and two lines;
+it is left undone because nothing in the project can currently test it. See
+[porting-targets.md](porting-targets.md).
 
 ## Scheduling: how a DSP runs without a scheduler
 

@@ -12,14 +12,21 @@ Sega Model 2 (1993) came in four revisions. This library implements the
 | | Original (1993) | 2A-CRX (1994) | 2B-CRX (1994) | 2C-CRX (1996) |
 |---|---|---|---|---|
 | Main CPU | i960KB @ 25 MHz | i960KB | i960KB | i960KB |
-| Math coprocessor | MB86233 TGP | MB86233 TGP | ADSP-21062 SHARC | TGPx4 |
+| Math coprocessor | MB86233 TGP | MB86233 TGP | ADSP-21062 SHARC | MB86235 "TGPx4" |
 | Sound | 68000 + YM3438 + 2× MultiPCM | 68000 + SCSP | 68000 + SCSP | 68000 + SCSP |
 | Titles | Virtua Cop, Daytona USA, Virtua Fighter 2 | Virtua Cop 2, Manx TT | Sega Rally, Virtual On | Dead or Alive, Over Rev |
 
 `model2_variant_t` in the public API names all four, but only
 `MODEL2_ORIGINAL` is implemented — the others currently change nothing but a
-line of log output. 2B needs a SHARC core, 2C a TGPx4, and everything from 2A
-onward needs SCSP instead of MultiPCM.
+line of log output.
+
+They are not equally far away. **2A-CRX runs the same MB86233 coprocessor** as
+the original board, and the geometry engine and rasterizer are common to all
+four; what differs is the program-RAM map, the I/O chip (a Sega 315-5649
+register interface instead of the Model 1 I/O board's dual-port RAM) and SCSP
+sound, which is stubbed either way. 2B needs an ADSP-21062 SHARC core and 2C an
+MB86235, which are different projects entirely. See
+[porting-targets.md](porting-targets.md).
 
 ## Chips that matter to a recomp
 
@@ -118,6 +125,11 @@ into 32-bit words).
 | `textures.bin` | texture sheets | Textured polygons |
 | `copro_tables.bin` | coprocessor | sin/cos, atan, 1/x, 1/√x tables from the CPU board. **Without it the coprocessor computes zero for every transcendental.** |
 
+The coprocessor's own **data ROM socket** — collision meshes, height maps,
+reached through its banked window at `adr & 0x800000` — is not loaded, because
+it is empty on the reference title. Daytona USA populates it with 4 MB. See
+[porting-targets.md](porting-targets.md).
+
 Only `program.bin` is required; everything else degrades a subsystem rather
 than failing the load.
 
@@ -143,6 +155,6 @@ on real hardware anyway. See [execution-model.md](execution-model.md).
 - **Host input reaching the game.** `io_set_input` and `io_set_lightgun` store
   state, and the I/O board's DPRAM command protocol works, but nothing copies
   the former into the latter — so buttons do not reach the guest.
-- **Board variants** other than the original.
+- **Board variants** other than the original — see [porting-targets.md](porting-targets.md) for how far each one is.
 - **Rasterizer filtering.** Point sampling only: no bilinear, no mipmaps, no
   microtexture.

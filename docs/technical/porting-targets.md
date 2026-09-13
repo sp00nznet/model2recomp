@@ -1,0 +1,146 @@
+# Porting Targets
+
+Which Model 2 games this library can realistically run today, what each one
+needs, and what the first port of a *second* title would teach us.
+
+The short version: **Daytona USA is the obvious next target** — it is the same
+board as the reference title, its program ROM is half the size, and it exercises
+exactly one thing Virtua Cop never touched.
+
+## The four boards, by how far they are from working
+
+| Board | Coprocessor | Geometry + rasterizer | Distance from here |
+|---|---|---|---|
+| **Model 2** (1993) | MB86233 TGP | same | **Working.** This is what the library implements. |
+| **2A-CRX** (1994) | MB86233 TGP — *identical* | same | **Close.** Different I/O chip and program-RAM map; sound differs but is stubbed either way. |
+| **2B-CRX** (1994) | ADSP-21062 SHARC | same | **Far.** A different DSP core entirely. |
+| **2C-CRX** (1996) | MB86235 "TGPx4" | same | **Far.** Another different DSP — 64-bit instruction words. |
+
+The thing worth knowing, and the thing this library's own docs got wrong until
+someone checked: **2A-CRX is not a new coprocessor.** In MAME both the original
+board and 2A derive from `model2_tgp_state` and run the same MB86233. The
+geometry engine and rasterizer are common to all four boards. So 2B and 2C are
+DSP-emulator projects, and 2A is a memory-map project.
+
+### What 2A-CRX actually needs
+
+Diffing `model2o_mem` against `model2a_crx_mem` in MAME's `model2.cpp`:
+
+| | Original | 2A-CRX |
+|---|---|---|
+| `0x00200000`–`0x0023FFFF` | 128 KB RAM, then the program ROM extension mirrored at `0x00220000` | 256 KB RAM, no ROM mirror |
+| `0x01C00000` | Model 1 I/O Board 2 dual-port RAM, 4 KB | **Sega 315-5649 I/O chip**, 32 bytes |
+| `0x01C80000` | i8251 UART | a serial register plus the UART status/control split across two halves |
+| Sound | 68000 + MultiPCM | 68000 + SCSP |
+
+Sound is stubbed on both, so it blocks nothing. The real work is the 315-5649,
+and it is a register interface rather than a dual-port RAM protocol — arguably
+simpler than what is already implemented.
+
+## The games
+
+What is sitting in the arcade directory, and what each would take.
+
+### Daytona USA — `daytona` — **Model 2 original**
+
+The obvious next port, and the one worth doing first.
+
+| | |
+|---|---|
+| Board | `model2o_state` — same as Virtua Cop |
+| Program ROM | **256 KB** (2 × 128 KB) — half of Virtua Cop's 512 KB |
+| Sound board | Model 1 sound board (68000 + MultiPCM), stubbed either way |
+| Blocker | **One.** See below. |
+
+**The one blocker: the coprocessor data ROM.** Virtua Cop's `copro_data`
+region is declared and empty. Daytona's holds **4 MB** (`mpr-16536`,
+`mpr-16537`) — collision meshes, height maps and similar, which the MB86233
+reads through its banked external window at `adr & 0x800000`. `tgp_memory_r()`
+in `src/copro.c` currently returns 0 for that case, because on the reference
+title there is nothing there:
+
+```c
+static uint32_t tgp_memory_r(uint32_t offset)
+{
+    uint32_t adr = (s_bank_reg & 0xFF0000) | offset;
+    if (adr & 0x800000) return 0;                 /* <- copro data ROM, unimplemented */
+    if (adr & 0x400000) return bus_bufferram_read32((adr & 0x7FFF) * 4);
+    return 0;
+}
+```
+
+Wiring it up is a ROM region, a load hook and two lines here — MAME masks the
+address to the region size in dwords and indexes it. What makes it worth doing
+on a real target rather than speculatively is that nothing currently in the
+project can test it.
+
+Two smaller things a Daytona loader has to get right:
+
+- **`ROM_COPY` mirroring.** `main_data` `0x800000`–`0x8FFFFF` is copied to
+  `0x900000`, `0xA00000` … `0xF00000`. The game reads those mirrors.
+- **A gap in the texture region.** Textures load at `0x000000` and `0x800000`
+  with nothing between. Region-sized images make this free; data-sized ones
+  break it.
+
+**What it would teach us.** Whether anything in model2recomp is accidentally
+Virtua Cop-shaped. Daytona is a driving game — different geometry load,
+different display-list usage, genuinely different lighting — on identical
+silicon. It also has a link-play communication board the library does not
+model, which is a good test of whether an unmodelled subsystem degrades or
+deadlocks.
+
+### Sega Rally Championship — `srallyc` — **Model 2A-CRX**
+
+The natural second target, and the one that would land 2A support.
+
+MAME marks every `srallyc` set `MACHINE_NOT_WORKING`, which is worth knowing
+before starting: if MAME cannot run it, the reference behaviour to compare
+against does not exist. Take that as a reason to do Daytona first, not as a
+reason to avoid it — "MAME cannot do this either" is a respectable place for a
+recomp to end up.
+
+### Dead or Alive — `doa` — **Model 2B-CRX** (2A clones exist)
+
+Needs the SHARC. The merged set also carries the `doaa` / `doaab` **Model 2A**
+clones, which would otherwise make it a 2A candidate — except that all DOA sets
+run through a **Sega 315-5881 cryptographic device** (key 317-0229) that
+decrypts data the game streams through it. That is a second, independent
+obstacle on top of the board.
+
+### Cyber Troopers Virtual-On — `von` — **Model 2B-CRX**
+
+SHARC. `MACHINE_NOT_WORKING` in MAME.
+
+### Over Rev — `overrev` — **Model 2B-CRX**
+
+SHARC.
+
+### The House of the Dead — `hotd` — **Model 2C-CRX**
+
+MB86235 TGPx4. `MACHINE_NOT_WORKING` in MAME. A lightgun game like Virtua Cop,
+so the I/O work would transfer — but the coprocessor is a from-scratch DSP
+core.
+
+### Wave Runner — `waverunr` — **Model 2C-CRX**
+
+MB86235. `MACHINE_NOT_WORKING` in MAME.
+
+## Suggested order
+
+1. **Daytona USA.** Same board, smaller program, one well-understood gap. It
+   is the cheapest possible answer to "is this library actually
+   title-agnostic?"
+2. **The coprocessor data ROM**, driven by (1) rather than written blind.
+3. **2A-CRX support** — the 315-5649 I/O chip and the program-RAM map — then
+   Sega Rally.
+4. **A SHARC or MB86235 core**, if someone wants 2B or 2C. Both are large,
+   self-contained, and testable in isolation, which makes them good projects
+   for someone who wants a well-defined thing to build.
+
+## A note on ROM set vintage
+
+Merged sets from older MAME builds use older filenames — `mpr-16537.28` where
+current MAME's `ROM_START` says `mpr-16537.ic28`, `e19310aa.12` where it now
+says `epr-19310a.12`. Same chips, same checksums, different strings. A loader
+matches on the name in *your* ZIP, so read the ZIP rather than transcribing
+MAME's current table.

@@ -52,12 +52,12 @@ If that produces a library, the rest of this guide is about your side.
 
 Only the **original Model 2** (1993) is implemented. Check your title:
 
-| Board | Copro | Sound | Supported |
+| Board | Copro | I/O | Supported |
 |---|---|---|---|
-| Model 2 (1993) | MB86233 TGP | 68000 + MultiPCM | **Yes** |
-| 2A-CRX (1994) | MB86233 TGP | 68000 + SCSP | No (sound differs) |
-| 2B-CRX (1994) | ADSP-21062 SHARC | 68000 + SCSP | No (different DSP) |
-| 2C-CRX (1996) | TGPx4 | 68000 + SCSP | No (different DSP) |
+| Model 2 (1993) | MB86233 TGP | Model 1 I/O board 2, dual-port RAM | **Yes** |
+| 2A-CRX (1994) | MB86233 TGP — *same* | Sega 315-5649 chip | Not yet, but close — see [porting-targets.md](technical/porting-targets.md) |
+| 2B-CRX (1994) | ADSP-21062 SHARC | Sega 315-5649 | No — different DSP |
+| 2C-CRX (1996) | MB86235 "TGPx4" | Sega 315-5649 | No — different DSP |
 
 Virtua Cop, Daytona USA and Virtua Fighter 2 are original-board titles.
 

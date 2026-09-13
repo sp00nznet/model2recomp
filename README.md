@@ -114,7 +114,8 @@ MAME's behaviour where it was ported from it.
 | I/O board | **Partial** | DPRAM command handshake works; host input is *not* yet copied into DPRAM, so buttons do not reach the game |
 | Platform (SDL2) | **Done** | Window, scaling, presentation, keyboard and mouse |
 | Sound | **Stub** | UART handshake only — no 68000, no MultiPCM, no audio |
-| Model 2A / 2B / 2C | **Not implemented** | The variant enum only labels a log line. 2B needs a SHARC, 2C a TGPx4, and 2A/2B/2C all need SCSP sound |
+| Copro data ROM | **Not implemented** | The coprocessor's external data socket reads zero. Empty on the reference title; Daytona USA puts 4 MB there |
+| Model 2A / 2B / 2C | **Not implemented** | The variant enum only labels a log line. 2A is close — same coprocessor, different I/O chip and RAM map. 2B needs an ADSP-21062 SHARC and 2C an MB86235 |
 
 ### What "rasterizer" means here, and what it does not
 
@@ -273,6 +274,8 @@ model2recomp/
   protocol, the math-table ROMs, and how it is scheduled.
 - **[Debugging](docs/technical/debugging.md)** — environment variables, traces,
   screenshots, and how to find out why guest code never runs.
+- **[Porting Targets](docs/technical/porting-targets.md)** — which Model 2
+  games are reachable from here, and what each one still needs.
 
 ## Games That Work Well As Targets
 
@@ -281,11 +284,14 @@ Original Model 2 titles, since that is the variant implemented:
 | Game | Year | Why it is a reasonable target |
 |---|---|---|
 | **Virtua Cop** | 1994 | The reference title — this library was built against it |
-| **Daytona USA** | 1993 | Same board and copro; heavy geometry will stress the rasterizer |
+| **Daytona USA** | 1993 | **The obvious next one.** Same board, half the program ROM, and exactly one gap: it fills the coprocessor's data ROM socket, which Virtua Cop leaves empty |
 | **Virtua Fighter 2** | 1994 | Same board; character animation is CPU-side, so it is mostly a lifter problem |
 
-2A-CRX, 2B-CRX and 2C-CRX titles need the missing variant work first — a
-different coprocessor and SCSP sound.
+2A-CRX is closer than it looks — it runs the *same* MB86233 coprocessor, and
+differs in its I/O chip and program-RAM map. 2B and 2C need a SHARC and an
+MB86235 respectively, which are separate DSP projects.
+**[docs/technical/porting-targets.md](docs/technical/porting-targets.md)** works
+through every title and what each one needs.
 
 ## Projects Using This Library
 
@@ -304,8 +310,11 @@ The gaps are well defined, and none of them need permission to start:
   game react.
 - **Rasterizer fidelity.** Bilinear filtering, mipmaps and microtexture
   blending are all in MAME's `model2rd.ipp` and absent here.
-- **Board variants.** 2B-CRX (SHARC) and 2C-CRX (TGPx4) coprocessors, and SCSP
-  sound for 2A and later.
+- **The coprocessor data ROM.** Two lines and a load hook, but untestable
+  until a title that uses it is ported — Daytona USA is the one.
+- **Board variants.** 2A-CRX is a memory-map and I/O-chip job on the same
+  coprocessor. 2B-CRX (ADSP-21062 SHARC) and 2C-CRX (MB86235) are new DSP
+  cores.
 - **Another title.** The fastest way to find out what is title-specific in here
   is to point it at a game that is not Virtua Cop.
 

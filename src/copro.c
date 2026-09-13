@@ -152,8 +152,14 @@ static uint32_t atan_r(void)
 }
 
 /* Banked external window: the high half of the bank register supplies the top
- * address bits. Only the buffer RAM window is populated on this board - the
- * copro data ROM socket is empty on Virtua Cop. */
+ * address bits. Two devices hang off it - buffer RAM at bit 22, and the
+ * coprocessor's own data ROM socket at bit 23.
+ *
+ * ponytail: the data ROM socket reads zero. It is empty on Virtua Cop, so
+ * there is nothing here to test against. A title that fills it (Daytona USA
+ * puts 4MB of collision and height-map data there) needs a copro_data region
+ * loaded and returned here, masked to the region size in dwords - see
+ * model2_tgp_state::copro_tgp_memory_r and docs/technical/porting-targets.md. */
 static uint32_t tgp_memory_r(uint32_t offset)
 {
     uint32_t adr = (s_bank_reg & 0xFF0000) | offset;
