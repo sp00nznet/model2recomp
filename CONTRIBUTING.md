@@ -47,13 +47,13 @@ explanation of what the hardware actually does.
 cmake -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake \
                -DVCPKG_TARGET_TRIPLET=x64-windows
 cmake --build build --config Release
-./build/tests/Release/model2recomp_test_tilemap
-./build/tests/Release/model2recomp_test_geometry
+./build/Release/model2recomp_test_tilemap
+./build/Release/model2recomp_test_geometry
 ```
 
-The tests are harnesses, not assertion suites — they drive a subsystem with
-synthetic data and write a PPM. They tell you the pipeline still produces a
-picture, which is most of what can be automated for a renderer.
+Both are self-checking and exit non-zero on failure. They need no ROMs, so
+they run anywhere — please keep them passing, and add a check when you fix
+something they would have caught.
 
 If your change affects a game, say which one and show a before and after.
 

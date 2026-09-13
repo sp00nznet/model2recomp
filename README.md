@@ -324,13 +324,14 @@ nothing from it ships here.
 
 ```bash
 cmake --build build --config Release
-./build/tests/Release/model2recomp_test_tilemap
-./build/tests/Release/model2recomp_test_geometry
+./build/Release/model2recomp_test_tilemap
+./build/Release/model2recomp_test_geometry
 ```
 
-They are standalone harnesses that drive a subsystem with synthetic data and
-write a PPM, not assertion suites — they tell you the pipeline still produces a
-picture.
+Both are self-checking: each prints one line per check and exits non-zero if
+any fail. They cover tilemap pixel order, transparency, scrolling and pass
+selection; and, for the geometry engine, projection position, culling behind
+the eye, and depth sorting. They do not need ROMs.
 
 ## FAQ
 
