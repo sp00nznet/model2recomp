@@ -86,8 +86,10 @@ static uint32_t s_geo_upload_words;
 static bool s_geo_list_ready;
 
 /* Push one word onto the command stream at the current write address. */
+unsigned g_geo_pushes, g_geo_publishes, g_geo_opcodes;
 static void geo_push(uint32_t data)
 {
+    g_geo_pushes++;
     bus_bufferram_write32(s_geo_write_addr, data);
     s_geo_write_addr += 4;
 }
@@ -119,6 +121,7 @@ void geo_write(uint32_t offset, uint32_t data)
                 r |= ((address >> 10) & 3) << 29;
 
             geo_push(r);
+            g_geo_opcodes++;
         }
         return;
     }
@@ -135,6 +138,7 @@ void geo_write(uint32_t offset, uint32_t data)
          */
         s_geo_read_addr = data & 0xFFFFF;
         s_geo_list_ready = true;
+        g_geo_publishes++;
     }
 }
 

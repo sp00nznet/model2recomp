@@ -110,7 +110,34 @@ bool func_table_call(uint32_t i960_addr)
 
     s_call_depth++;
     uint32_t prev = g_cur_func; g_cur_func = i960_addr;
+    uint32_t sp_in = g_i960.r[1];
+
     func();
+
+    /*
+     * MODEL2_LEAK names functions that return with the guest stack higher than
+     * they found it. Only the innermost is reported, since a leak shows up in
+     * every caller above it too; that innermost one is the function whose
+     * generated C has a path that never reaches its "ret".
+     *
+     * Function discovery is what produces them: a data table following a "ret"
+     * looks like an entry point, splits the real function in two, and a path
+     * through the far half falls off the end. One leaked frame per field is
+     * enough for the stack to climb into the PRCB within a minute.
+     */
+    static int s_child_leaked;
+    int child_leaked = s_child_leaked;
+    s_child_leaked = 0;
+    if (g_i960.r[1] > sp_in) {
+        s_child_leaked = 1;
+        static int budget = 40;
+        if (!child_leaked && budget > 0 && getenv("MODEL2_LEAK")) {
+            budget--;
+            fprintf(stderr, "[leak] %08X left sp %08X -> %08X\n",
+                    i960_addr, sp_in, g_i960.r[1]);
+        }
+    }
+
     g_cur_func = prev;
     s_call_depth--;
     return true;

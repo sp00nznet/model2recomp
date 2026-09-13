@@ -14,6 +14,8 @@
 
 /* Global CPU context */
 I960Context g_i960;
+/* MODEL2_LEAK reporting: how far the guest stack ever got. */
+uint32_t g_sp_high;
 
 void i960_reset(void)
 {
@@ -52,25 +54,23 @@ void i960_do_call(uint32_t target_addr, uint32_t return_addr)
     uint32_t old_fp = I960_FP;
 
     if (g_i960.rcache_pos < I960_RCACHE_SIZE) {
-        /* Cache has space - save local regs to cache */
         memcpy(g_i960.rcache[g_i960.rcache_pos], g_i960.r, 16 * sizeof(uint32_t));
         g_i960.rcache_frame_addr[g_i960.rcache_pos] = old_fp;
         g_i960.rcache_pos++;
     } else {
-        /* Cache full - spill oldest frame to stack memory */
+        /* Cache full - spill the oldest frame to its own frame in memory. */
         uint32_t spill_addr = g_i960.rcache_frame_addr[0];
-        for (int i = 0; i < 16; i++) {
+        for (int i = 0; i < 16; i++)
             bus_write32(spill_addr + i * 4, g_i960.rcache[0][i]);
-        }
-        /* Shift cache entries down */
         for (int i = 0; i < I960_RCACHE_SIZE - 1; i++) {
             memcpy(g_i960.rcache[i], g_i960.rcache[i + 1], 16 * sizeof(uint32_t));
             g_i960.rcache_frame_addr[i] = g_i960.rcache_frame_addr[i + 1];
         }
-        /* Save current frame to top of cache */
         memcpy(g_i960.rcache[I960_RCACHE_SIZE - 1], g_i960.r, 16 * sizeof(uint32_t));
         g_i960.rcache_frame_addr[I960_RCACHE_SIZE - 1] = old_fp;
     }
+
+    if (I960_SP > g_sp_high) g_sp_high = I960_SP;
 
     /* Set up new frame */
     I960_PFP = old_fp & ~0x3f; /* Previous Frame Pointer (64-byte aligned, type=0 for local call) */
@@ -115,3 +115,4 @@ void i960_do_ret(void)
     /* IP = saved return address (was in r2 of the restored frame) */
     g_i960.IP = I960_RIP;
 }
+

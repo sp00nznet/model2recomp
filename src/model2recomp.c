@@ -282,7 +282,8 @@ void model2recomp_dispatch_irq(void)
      * model2_state::irq_update. */
     static const uint32_t line_mask[4] = { 0x001, 0x002, 0x3FC, 0xC00 };
 
-    uint32_t int_tab = bus_read32(bus_i960_prcb() + 0x14);
+    static uint32_t int_tab;
+    if (!int_tab) int_tab = bus_read32(bus_i960_prcb() + 0x14);
     if (!int_tab) return;
 
     for (int line = 3; line >= 0; line--) {
@@ -322,7 +323,7 @@ void model2recomp_dispatch_irq(void)
         switch (m ? atoi(m) : 0) {
         case 1:
             i960_do_call(handler, 0);
-            func_table_call(handler);
+            if (!func_table_call(handler)) i960_do_ret();
             break;
         case 2: {
             I960Context saved = g_i960;
@@ -389,9 +390,11 @@ uint32_t model2recomp_field_sync(void)
         {
             const char *pc = getenv("MODEL2_POLYCOUNT");
             long every = pc ? atol(pc) : 0;
+            extern unsigned g_geo_pushes, g_geo_publishes, g_geo_opcodes;
             if (every > 0 && (s_fields_done % every) == 0)
-                fprintf(stderr, "[poly] f%ld count=%u\n",
-                        s_fields_done, geo_polygon_count());
+                fprintf(stderr, "[poly] f%ld count=%u push=%u op=%u pub=%u sp=%08X fp=%08X rc=%d\n",
+                        s_fields_done, geo_polygon_count(),
+                        g_geo_pushes, g_geo_opcodes, g_geo_publishes, I960_SP, I960_FP, g_i960.rcache_pos);
         }
 
         model2recomp_trigger_vblank();
@@ -421,7 +424,24 @@ uint32_t model2recomp_field_sync(void)
              * on screen; this does. */
             const char *shot = getenv("MODEL2_SCREENSHOT");
 
+            if (getenv("MODEL2_LEAK")) {
+                extern uint32_t g_sp_high;
+                printf("[i960] guest stack high-water 0x%08X\n", g_sp_high);
+            }
             if (shot) model2recomp_save_ppm(shot);
+
+            /* MODEL2_RAMDUMP=path writes the 1MB work RAM image. Diffing two
+             * runs that diverge is the fastest way to find the variable that
+             * made them diverge. */
+            const char *dump = getenv("MODEL2_RAMDUMP");
+            if (dump) {
+                FILE *df = fopen(dump, "wb");
+                if (df) {
+                    fwrite(bus_get_workram(), 1, 0x100000, df);
+                    fclose(df);
+                    printf("[model2recomp] Wrote work RAM to %s\n", dump);
+                }
+            }
             quit = true;
         }
         if (quit) {

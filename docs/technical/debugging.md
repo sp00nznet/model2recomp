@@ -15,6 +15,8 @@ environment variables and one technique that answers most questions.
 | `MODEL2_POLYCOUNT=N` | Every N fields, print how many polygons the geometry engine produced. Zero means the game is not submitting a display list — a different problem from one that draws nothing. |
 | `MODEL2_WATCH=0xADDR` | Print every 32-bit write to that address, with the value, the guest function doing it, and FP/SP. A memory watchpoint, and the fastest way to find who corrupted something. |
 | `MODEL2_IRQMODE=0\|1\|2` | How the interrupt handler is entered. See **The interrupt frame** below. |
+| `MODEL2_LEAK=1` | Name functions that return with the guest stack higher than they found it, and report the stack high-water mark at exit. See **Frame leaks** below. |
+| `MODEL2_RAMDUMP=path` | Write the 1 MB work RAM image at the frame limit. Diffing two runs that diverge finds the variable that made them diverge. |
 
 A game project normally adds its own field limit (Virtua Cop uses
 `VCOP_MAX_FRAMES=N`), because the guest's busy-wait gives no other place to
@@ -122,11 +124,57 @@ of its scenery renders black.
 | `1` | `i960_do_call` first, so the handler's `ret` pops its own frame. What the hardware does. |
 | `2` | Snapshot the whole context, call, restore. Equivalent guarantee, simpler. |
 
-**Modes 1 and 2 stop the game submitting any display list at all** — permanently,
-from the first field. It is not stuck: it executes *more* distinct functions
-than mode 0 does, so the faithful model lets it get further into its own logic
-and then somewhere else goes wrong. Whatever that is has not been found yet. If
-you are looking for one thing to fix in this library, it is this.
+**Modes 1 and 2 stop the game submitting any display list at all.** Not
+immediately: it publishes a list every field from the start, but the lists stay
+nearly empty — about 360 opcodes over 600 fields where mode 0 reaches 3,877 as
+soon as the attract demo begins.
+
+The reason is the *other* direction of the same problem. Correct the interrupt
+frame and the guest stack stops collapsing — and starts **climbing**, about
+sixty bytes a field:
+
+```
+[poly] f100 ... sp=00503640      [poly] f400 ... sp=005082C0
+[poly] f200 ... sp=00504FC0      [poly] f500 ... sp=00509C40
+```
+
+It reaches the relocated PRCB at `0x00501000` within about fifty fields, the
+interrupt table just above it, and then the game's own variables. What looks
+like "the game refuses to render" is the game having its state overwritten from
+below.
+
+So the interrupt frame is not the whole problem: **there is a frame leak in the
+guest**, and mode 0's unbalanced `ret` was cancelling it out by accident. Fix
+the leak and the faithful interrupt model should follow.
+
+## Frame leaks
+
+`MODEL2_LEAK=1` reports functions that return with the stack higher than they
+found it, innermost first, plus the stack high-water mark at exit. On Virtua
+Cop it names one:
+
+```
+[leak] 00074E20 left sp 00500600 -> 00500780
+```
+
+`0x00074E20` is inside the printf family. Its generated C opens with
+`I960_SP = I960_SP + 0x180` and then takes a branch that the lifter turned into
+a tail call, because **function discovery split the real function in two**: the
+data table at `0x00074DE0` — a hex-digit table and the string `(nul)` — follows
+a `ret`, which is exactly what a function entry looks like. The path taken
+through the second half falls off the end of its generated C without ever
+reaching a `ret`, so the `0x180` is never given back.
+
+Two fixes suggest themselves, and both are worth doing:
+
+- **Better function discovery.** A post-`ret` candidate that is really a data
+  table should not become an entry point. Printable ASCII is a cheap and strong
+  signal.
+- **Balance the frame where it was pushed.** The call site knows the depth it
+  should return to. Attempts at this have been made and made things worse — the
+  correction can fire on a legitimately deeper return, and `i960_do_ret` with an
+  empty register cache reads a frame out of memory that was never written — so
+  it needs doing carefully rather than defensively.
 
 ## Comparing against MAME
 
