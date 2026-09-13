@@ -461,6 +461,13 @@ uint32_t model2recomp_field_sync(void)
                     }
                     fclose(df);
                 }
+                snprintf(p, sizeof p, "%s.pal", dump);
+                df = fopen(p, "wb");
+                if (df) {
+                    fwrite(video_get_palram(), 2, 0x2000, df);
+                    fwrite(video_get_colorxlat(), 2, 0x6000, df);
+                    fclose(df);
+                }
                 snprintf(p, sizeof p, "%s.char", dump);
                 df = fopen(p, "wb");
                 if (df) {
