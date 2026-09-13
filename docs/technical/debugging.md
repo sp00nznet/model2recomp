@@ -17,6 +17,7 @@ environment variables and one technique that answers most questions.
 | `MODEL2_IRQMODE=0\|1\|2` | How the interrupt handler is entered. See **The interrupt frame** below. |
 | `MODEL2_LEAK=1` | Name functions that return with the guest stack higher than they found it, and report the stack high-water mark at exit. See **Frame leaks** below. |
 | `MODEL2_RAMDUMP=path` | Write the 1 MB work RAM image at the frame limit. Diffing two runs that diverge finds the variable that made them diverge. |
+| `MODEL2_SHADE=N` | Dump how the first N polygons of a field resolve their colour - texture flag, luma, palette entry, ramp values. A polygon that draws wrong is nearly always its palette entry rather than the fill. |
 
 A game project normally adds its own field limit (Virtua Cop uses
 `VCOP_MAX_FRAMES=N`), because the guest's busy-wait gives no other place to

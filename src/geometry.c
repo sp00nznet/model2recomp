@@ -32,6 +32,7 @@
 /* MODEL2_POLYCOUNT accounting: how many polygons the engine saw, and how many
  * it threw away. */
 unsigned g_geo_seen, g_geo_culled, g_geo_clipped;
+int g_shade_dump;
 
 #define FB_WIDTH   496
 #define FB_HEIGHT  384
@@ -1291,6 +1292,8 @@ void geo_render_polygons(void)
      * destructive - projection rewrites each vertex in place - so a field with
      * no new list keeps the bitmap it already has, as MAME's render_polygons
      * does when m_render_done is still set. */
+    { const char *e = getenv("MODEL2_SHADE"); g_shade_dump = e ? atoi(e) : 0; }
+
     if (s_render_done)
         return;
 
@@ -1308,6 +1311,21 @@ void geo_render_polygons(void)
                     shading_t sh;
                     memset(&sh, 0, sizeof(sh));
                     setup_shading(poly, &sh);
+
+                    /* MODEL2_SHADE=N dumps how the first N polygons of a
+                     * field resolve their colour: a polygon that draws wrong
+                     * is nearly always its palette entry, not the fill. */
+                    if (g_shade_dump > 0) {
+                        g_shade_dump--;
+                        fprintf(stderr, "[shade] tex=%d luma=%3u lumabase=%04X "
+                                "colorbase=%03X col=%04X ramp[0,32,63]=%02X %02X %02X lram[0,60,120]=%02X %02X %02X z=%u nv=%d\n",
+                                sh.textured, sh.poly_luma, sh.lumabase,
+                                (poly->texheader[3] >> 6) & 0x3FF,
+                                video_get_palram()[((((poly->texheader[3] >> 6) & 0x3FF)) + 0x1000) & 0x1FFF],
+                                sh.ramp_r[0] & 0xFF, sh.ramp_r[32] & 0xFF, sh.ramp_r[63] & 0xFF,
+                                sh.lumaram[sh.lumabase], sh.lumaram[sh.lumabase+60], sh.lumaram[sh.lumabase+120],
+                                poly->z, poly->num_vertices);
+                    }
 
                     model2_3d_project(poly);
 
