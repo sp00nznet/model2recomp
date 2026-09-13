@@ -299,28 +299,23 @@ void model2recomp_dispatch_irq(void)
             continue;
 
         /*
-         * How the handler is entered - MODEL2_IRQMODE, default 0.
+         * How the handler is entered - MODEL2_IRQMODE, default 2.
          *
-         * 0 (default) calls it bare. That is not what the hardware does: an
-         * interrupt pushes a frame, and this handler ends in a plain "ret"
-         * that pops one, so every field pops a frame nobody pushed. The frame
-         * pointer walks down the chain until it leaves work RAM, after which
-         * every frame-relative load in the guest reads ROM. On Virtua Cop one
-         * of those reads is a palette fade counter, and the bogus fade that
-         * results writes the i960 boot header over the polygon palette - which
-         * is why most of its scenery draws black.
+         * Taking an interrupt allocates a stack frame on this processor and
+         * the handler ends in a plain "ret" that pops it, so the handler has
+         * to be given one. Mode 2 snapshots the whole context instead, which
+         * gives the same guarantee more simply: the handler talks to the rest
+         * of the game through memory and hardware, never registers.
          *
-         * 1 and 2 are the faithful models: push a frame for the handler, or
-         * snapshot and restore the whole context around it. Both stop the game
-         * submitting any display list at all, permanently, for reasons not yet
-         * understood - it executes *more* code, not less, so it is not simply
-         * stuck. Until that is worked out, 0 is the mode that produces a
-         * picture, and the modes are a knob rather than a decision.
-         *
-         * See docs/technical/debugging.md.
+         * Mode 0 calls it bare, which pops a frame nobody pushed once per
+         * field and walks the frame pointer out of work RAM. That was the
+         * default for a long time, only because two leaks in the lifted code
+         * were pushing the stack the other way and mode 0's error happened to
+         * cancel them. With those fixed, mode 2 is both correct and the mode
+         * in which the reference title actually plays.
          */
         const char *m = getenv("MODEL2_IRQMODE");
-        switch (m ? atoi(m) : 0) {
+        switch (m ? atoi(m) : 2) {
         case 1:
             i960_do_call(handler, 0);
             if (!func_table_call(handler)) i960_do_ret();
@@ -392,9 +387,18 @@ uint32_t model2recomp_field_sync(void)
             long every = pc ? atol(pc) : 0;
             extern unsigned g_geo_pushes, g_geo_publishes, g_geo_opcodes;
             if (every > 0 && (s_fields_done % every) == 0)
-                fprintf(stderr, "[poly] f%ld count=%u push=%u op=%u pub=%u sp=%08X fp=%08X rc=%d\n",
+            {
+                extern unsigned g_geo_seen, g_geo_culled, g_geo_clipped;
+                const uint32_t *dm = geo_get_destmap();
+                unsigned drawn = 0;
+                if (dm) for (int i = 0; i < 512 * 384; i++) if (dm[i]) drawn++;
+                fprintf(stderr, "[poly] f%ld count=%u push=%u op=%u pub=%u "
+                        "seen=%u culled=%u clipped=%u drawn3d=%u sp=%08X fp=%08X\n",
                         s_fields_done, geo_polygon_count(),
-                        g_geo_pushes, g_geo_opcodes, g_geo_publishes, I960_SP, I960_FP, g_i960.rcache_pos);
+                        g_geo_pushes, g_geo_opcodes, g_geo_publishes,
+                        g_geo_seen, g_geo_culled, g_geo_clipped, drawn,
+                        I960_SP, I960_FP);
+            }
         }
 
         model2recomp_trigger_vblank();

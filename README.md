@@ -112,7 +112,7 @@ MAME's behaviour where it was ported from it.
 | Interrupt controller | **Done** | Request / acknowledge / enable, all lines serviced |
 | EEPROM / backup SRAM | **Done** | 16 KB, saved and restored |
 | I/O board | **Partial** | Command handshake, buttons and lightgun all reach the guest through DPRAM. The board's EEPROM - coinage and game settings - is not modelled |
-| Interrupt frame | **Known-wrong** | The handler is called without the frame the hardware pushes, so its `ret` unwinds one too far every field. The faithful models stop the reference title rendering; see [debugging.md](docs/technical/debugging.md#the-interrupt-frame) |
+| Interrupt frame | **Done** | The handler runs with the context snapshotted and restored around it, which is what the hardware guarantees. `MODEL2_IRQMODE` keeps the other models for A/B |
 | Platform (SDL2) | **Done** | Window, scaling, presentation, keyboard and mouse |
 | Sound | **Stub** | UART handshake only — no 68000, no MultiPCM, no audio |
 | Copro data ROM | **Not implemented** | The coprocessor's external data socket reads zero. Empty on the reference title; Daytona USA puts 4 MB there |
@@ -305,11 +305,9 @@ The gaps are well defined, and none of them need permission to start:
 
 - **Sound.** `src/sound.c` is a UART handshake and nothing else. A 68000 core
   plus MultiPCM would make this the first Model 2 recomp with audio.
-- **The interrupt frame.** The highest-value unsolved problem in the library -
-  see [debugging.md](docs/technical/debugging.md#the-interrupt-frame). It is
-  the reason Virtua Cop's scenery renders black.
 - **The I/O board EEPROM.** Buttons work; the 93C46 holding coinage and game
-  settings does not exist, so the game has no coin-per-credit setting to read.
+  settings does not exist. Virtua Cop defaults to free play without it, which
+  is convenient and not correct.
 - **Rasterizer fidelity.** Bilinear filtering, mipmaps and microtexture
   blending are all in MAME's `model2rd.ipp` and absent here.
 - **The coprocessor data ROM.** Two lines and a load hook, but untestable

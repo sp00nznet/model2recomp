@@ -93,59 +93,27 @@ entry point. That is how Virtua Cop's scene renderer was found.
 
 ## The interrupt frame
 
-This one is worth knowing about before it wastes your afternoon, because it
-produces symptoms that look like anything but what it is.
-
 Recompiled code has no instruction boundary to interrupt, so the handler is
 called at the field boundary. On real hardware, taking an interrupt **pushes a
 stack frame**, and the handler ends in a plain `ret` that pops it. Called bare,
-that `ret` pops a frame nobody pushed — once per field.
-
-The frame pointer then walks down the chain and, within a few hundred fields,
-leaves work RAM entirely:
-
-```
-[watch] ... fp=00500500   [watch] ... fp=005004C0   [watch] ... fp=00500440
-[watch] ... fp=00000000   [watch] ... fp=00000100   [watch] ... fp=0A0009C0
-```
-
-After that every frame-relative load in the guest reads whatever is at that
-address — ROM, or nothing. A compiler stores short-lived temporaries relative
-to the frame pointer, so the guest starts computing with values it never wrote.
-On Virtua Cop one of them is a palette fade counter, and the resulting bogus
-fade copies the i960's boot header over the polygon palette, which is why most
-of its scenery renders black.
+that `ret` pops a frame nobody pushed - once per field - and the frame pointer
+walks down the chain until it leaves work RAM, after which every frame-relative
+load in the guest reads ROM.
 
 `MODEL2_IRQMODE` selects the model:
 
 | Mode | What |
 |---|---|
-| `0` (default) | Call the handler bare. Wrong, but it is the mode in which the reference title renders. |
-| `1` | `i960_do_call` first, so the handler's `ret` pops its own frame. What the hardware does. |
-| `2` | Snapshot the whole context, call, restore. Equivalent guarantee, simpler. |
+| `0` | Call the handler bare. Wrong; kept because it is a useful A/B. |
+| `1` | `i960_do_call` first, so the handler's `ret` pops its own frame. |
+| `2` (default) | Snapshot the whole context, call, restore. Same guarantee, simpler. |
 
-**Modes 1 and 2 stop the game submitting any display list at all.** Not
-immediately: it publishes a list every field from the start, but the lists stay
-nearly empty — about 360 opcodes over 600 fields where mode 0 reaches 3,877 as
-soon as the attract demo begins.
-
-The reason is the *other* direction of the same problem. Correct the interrupt
-frame and the guest stack stops collapsing — and starts **climbing**, about
-sixty bytes a field:
-
-```
-[poly] f100 ... sp=00503640      [poly] f400 ... sp=005082C0
-[poly] f200 ... sp=00504FC0      [poly] f500 ... sp=00509C40
-```
-
-It reaches the relocated PRCB at `0x00501000` within about fifty fields, the
-interrupt table just above it, and then the game's own variables. What looks
-like "the game refuses to render" is the game having its state overwritten from
-below.
-
-So the interrupt frame is not the whole problem: **there is a frame leak in the
-guest**, and mode 0's unbalanced `ret` was cancelling it out by accident. Fix
-the leak and the faithful interrupt model should follow.
+Mode 2 was *not* usable for a long time, and the reason is worth knowing
+because it is the shape of a whole class of recomp bug: **two leaks in the
+lifted code were pushing the guest stack up, and mode 0's unbalanced `ret` was
+pulling it down, so the two errors cancelled.** Fixing either one alone made
+things visibly worse. Both are described under **Frame leaks**; with them
+fixed, mode 2 is correct and is what the reference title renders and plays in.
 
 ## Frame leaks
 
@@ -165,16 +133,22 @@ a `ret`, which is exactly what a function entry looks like. The path taken
 through the second half falls off the end of its generated C without ever
 reaching a `ret`, so the `0x180` is never given back.
 
-Two fixes suggest themselves, and both are worth doing:
+Both known leaks came from function discovery, and both are fixed in
+virtuacop's lifter:
 
-- **Better function discovery.** A post-`ret` candidate that is really a data
-  table should not become an entry point. Printable ASCII is a cheap and strong
-  signal.
-- **Balance the frame where it was pushed.** The call site knows the depth it
-  should return to. Attempts at this have been made and made things worse — the
-  correction can fire on a legitimately deeper return, and `i960_do_ret` with an
-  empty register cache reads a frame out of memory that was never written — so
-  it needs doing carefully rather than defensively.
+- **A `ret` is not the end of a function.** A conditional branch that skips an
+  early return leaves one in the middle; the code after it is a continuation.
+  `post_ret -= branch_targets - calls`: a branch names a label, a call names a
+  function.
+- **Switch jump tables are not named by anything.** `ld table[gN*4], gM`
+  followed by `bx (gM)` dispatches through a table of code addresses that no
+  call or branch mentions, so the targets are never discovered, the dispatch
+  misses, the whole switch does nothing, and the frame the caller allocated is
+  never given back. Harvesting the table at lift time found 188 more functions
+  in Virtua Cop - and unblocked the game's own state machine.
+
+If `MODEL2_LEAK` names a function on a title you are porting, look for one of
+these two shapes first.
 
 ## Comparing against MAME
 

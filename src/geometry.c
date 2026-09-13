@@ -29,6 +29,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* MODEL2_POLYCOUNT accounting: how many polygons the engine saw, and how many
+ * it threw away. */
+unsigned g_geo_seen, g_geo_culled, g_geo_clipped;
+
 #define FB_WIDTH   496
 #define FB_HEIGHT  384
 #define FB_STRIDE  512      /* framebuffer VRAM is 512 pixels wide */
@@ -352,6 +356,8 @@ static void model2_3d_process_polygon(uint32_t attr, int num_verts)
     }
     raster->polygon_z = zvalue;
 
+    g_geo_seen++;
+    if (check_culling(attr, min_z, max_z)) g_geo_culled++;
     if (!check_culling(attr, min_z, max_z)) {
         vertex_t verts_in[MAX_VERTS], verts_out[MAX_VERTS];
         int32_t clipped_verts = num_verts;
@@ -366,6 +372,7 @@ static void model2_3d_process_polygon(uint32_t attr, int num_verts)
                 verts_in[j] = verts_out[j];
         }
 
+        if (clipped_verts <= 2) g_geo_clipped++;
         if (clipped_verts > 2 && raster->poly_list_index < MAX_POLYGONS) {
             uint16_t z = float_to_zval(zvalue, raster->z_adjust);
             polygon_t *poly = &raster->poly_list[raster->poly_list_index++];
