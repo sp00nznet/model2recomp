@@ -65,6 +65,7 @@ void geo_render_polygons(void);
 
 /* The rendered 3D bitmap: 512 pixels per row, XRGB8888, 0 where nothing drawn. */
 const uint32_t *geo_get_destmap(void);
+const uint8_t *geo_get_gamma(void);
 
 /* Polygons produced by the last geo_parse. */
 uint32_t geo_polygon_count(void);

@@ -408,11 +408,25 @@ void lumaram_write(uint32_t offset, uint8_t data)
  * ponytail: the real path runs this through the colour-translate RAM and a
  * gamma table (model2_v.cpp) before the DAC. Straight 5-to-8 bit expansion
  * until there is something on screen to compare against. */
+/*
+ * A palette entry is not a colour. Each of its three 5-bit fields selects one
+ * of 32 ramps in colour-translate RAM, and the tilemaps read those ramps at
+ * luma 0x40 - fully lit - before the gamma curve. Expanding the 5 bits to 8
+ * directly skips the game's own colour setup: on the warning screen every pen
+ * came out within a shade of white, so white text sat invisibly on a white
+ * background. From model2_v.cpp screen_update_model2.
+ */
+#define XLAT_TILE_R 0x0040
+#define XLAT_TILE_G 0x2040
+#define XLAT_TILE_B 0x4040
+
 static inline uint32_t palette_rgbx(uint16_t entry)
 {
-    uint32_t r = ((entry >> 0)  & 0x1F) << 3;
-    uint32_t g = ((entry >> 5)  & 0x1F) << 3;
-    uint32_t b = ((entry >> 10) & 0x1F) << 3;
+    const uint8_t *gam = geo_get_gamma();
+    uint32_t c = entry & 0x7FFF;
+    uint32_t r = gam[s_colorxlat[XLAT_TILE_R + (((c >> 0)  & 0x1F) << 8)] & 0xFF];
+    uint32_t g = gam[s_colorxlat[XLAT_TILE_G + (((c >> 5)  & 0x1F) << 8)] & 0xFF];
+    uint32_t b = gam[s_colorxlat[XLAT_TILE_B + (((c >> 10) & 0x1F) << 8)] & 0xFF];
     return r | (g << 8) | (b << 16) | 0xFF000000u;
 }
 
@@ -434,21 +448,30 @@ static void tilemap_draw_layer(int layer, int pass, int opaque)
     if (vscr & 0x8000)
         return; /* layer disabled */
 
+    {   /* MODEL2_NOLAYER=<bitmask> drops layers, to see who paints what. */
+        const char *nl = getenv("MODEL2_NOLAYER");
+        if (nl && (strtol(nl, NULL, 0) & (1 << layer)))
+            return;
+    }
+
     /*
-     * Window/split modes. The four tilemaps are two pairs - a "screen" half
-     * and a "window" half - and when the control word selects a split, the
-     * window half is drawn *inside the even half's call*, clipped to the
-     * window, rather than on its own. Drawing it on its own paints the whole
-     * screen: in Virtua Cop that is a solid light grey over the entire game,
-     * which is what the in-game 3D was hiding behind.
+     * The four tilemaps are two pairs: a "screen" half (even) and a "window"
+     * half (odd). The window half is not a layer of its own. In normal mode
+     * segaic24.cpp's draw_common never touches it at all - it draws only
+     * tile_layer[layer] - and only when the pair's control word selects a
+     * split (bits 13-14) does it draw both halves, each clipped to its own
+     * region of the screen.
      *
-     * ponytail: the odd half is skipped rather than windowed, which loses
-     * whatever was inside the window and keeps everything else. The real
-     * split is segaic24.cpp's draw_common - four modes, plus per-line scroll
-     * off hscr bit 15.
+     * Drawing the window half unconditionally is what put a solid fill over
+     * everything: Virtua Cop's warning screen fills tilemap 1 with one solid
+     * tile, and the whole screen - text, 3D and all - vanished behind it.
+     *
+     * ponytail: the odd half is skipped in both modes, which loses whatever
+     * belongs inside a window but keeps everything else. Implementing the
+     * split means draw_common's four cases plus per-line scroll off hscr
+     * bit 15.
      */
-    uint16_t ctrl = tile_word(TILE_VSCROLL + (layer & 2));
-    if ((ctrl & 0x6000) && (layer & 1))
+    if (layer & 1)
         return;
 
     /* ponytail: plain scroll only. Per-line scroll (hscr bit 15) is in

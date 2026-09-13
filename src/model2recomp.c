@@ -392,6 +392,11 @@ uint32_t model2recomp_field_sync(void)
                 const uint32_t *dm = geo_get_destmap();
                 unsigned drawn = 0;
                 if (dm) for (int i = 0; i < 512 * 384; i++) if (dm[i]) drawn++;
+                extern unsigned long g_dispatches;
+                static unsigned long prev_disp;
+                fprintf(stderr, "[disp] f%ld calls=%lu\n", s_fields_done,
+                        g_dispatches - prev_disp);
+                prev_disp = g_dispatches;
                 fprintf(stderr, "[poly] f%ld count=%u push=%u op=%u pub=%u "
                         "seen=%u culled=%u clipped=%u drawn3d=%u sp=%08X fp=%08X\n",
                         s_fields_done, geo_polygon_count(),
@@ -442,6 +447,27 @@ uint32_t model2recomp_field_sync(void)
                 FILE *df = fopen(dump, "wb");
                 if (df) {
                     fwrite(bus_get_workram(), 1, 0x100000, df);
+                    fclose(df);
+                }
+                /* ...and the tilemap name table and character RAM beside it,
+                 * so the text on screen can be read back as tile indices. */
+                char p[512];
+                snprintf(p, sizeof p, "%s.tile", dump);
+                df = fopen(p, "wb");
+                if (df) {
+                    for (uint32_t a = 0x01000000; a < 0x01010000; a += 4) {
+                        uint32_t w = bus_read32(a);
+                        fwrite(&w, 4, 1, df);
+                    }
+                    fclose(df);
+                }
+                snprintf(p, sizeof p, "%s.char", dump);
+                df = fopen(p, "wb");
+                if (df) {
+                    for (uint32_t a = 0x01080000; a < 0x01100000; a += 4) {
+                        uint32_t w = bus_read32(a);
+                        fwrite(&w, 4, 1, df);
+                    }
                     fclose(df);
                     printf("[model2recomp] Wrote work RAM to %s\n", dump);
                 }

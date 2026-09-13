@@ -1067,6 +1067,9 @@ static void model2_3d_project(polygon_t *poly)
 
 static uint8_t s_gamma[256];
 
+/* The tilemaps need the same curve; see video.c palette_rgbx. */
+const uint8_t *geo_get_gamma(void) { return s_gamma; }
+
 static void build_gamma_table(void)
 {
     /* MAME's colour-space conversion; a real cabinet's monitor calibration

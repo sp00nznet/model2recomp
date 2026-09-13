@@ -17,6 +17,20 @@
 #define MAX_CALL_DEPTH 500
 #define MAX_MISS_LOG   20
 
+unsigned long g_dispatches;
+static uint32_t s_ring[32];
+static int s_ring_pos;
+
+/* MODEL2_RING dumps the last 32 dispatches at exit: when the game stops
+ * making progress, this names the loop it is stuck in. */
+static void ring_dump(void)
+{
+    fprintf(stderr, "[ring]");
+    for (int i = 0; i < 32; i++)
+        fprintf(stderr, " %08X", s_ring[(s_ring_pos + i) & 31]);
+    fprintf(stderr, "\n");
+}
+
 typedef struct {
     uint32_t    addr;
     i960_func_t func;
@@ -42,6 +56,7 @@ void func_table_init(void)
     memset(s_table, 0, sizeof(s_table));
     s_call_depth = 0;
     s_miss_count = 0;
+    if (getenv("MODEL2_RING")) atexit(ring_dump);
     printf("[func_table] Initialized (%d slots)\n", TABLE_SIZE);
 }
 
@@ -95,7 +110,14 @@ bool func_table_call(uint32_t i960_addr)
 
     i960_func_t func = func_table_lookup(i960_addr);
     if (!func) {
-        if (s_miss_count < MAX_MISS_LOG) {
+        if (getenv("MODEL2_MISSFROM")) {
+            static int b = 60;
+            if (b > 0) {
+                b--;
+                fprintf(stderr, "[miss] 0x%08X from 0x%08X\n",
+                        i960_addr, g_cur_func);
+            }
+        } else if (s_miss_count < MAX_MISS_LOG) {
             printf("[func_table] MISS: no function at 0x%08X\n", i960_addr);
             s_miss_count++;
         }
@@ -109,6 +131,8 @@ bool func_table_call(uint32_t i960_addr)
     }
 
     s_call_depth++;
+    g_dispatches++;
+    s_ring[s_ring_pos] = i960_addr; s_ring_pos = (s_ring_pos + 1) & 31;
     uint32_t prev = g_cur_func; g_cur_func = i960_addr;
     uint32_t sp_in = g_i960.r[1];
 
@@ -135,6 +159,13 @@ bool func_table_call(uint32_t i960_addr)
             budget--;
             fprintf(stderr, "[leak] %08X left sp %08X -> %08X\n",
                     i960_addr, sp_in, g_i960.r[1]);
+            if (getenv("MODEL2_LEAKPATH")) {
+                fprintf(stderr, "  path:");
+                for (int i = 0; i < 24; i++)
+                    fprintf(stderr, " %08X",
+                            s_ring[(s_ring_pos + i) & 31]);
+                fprintf(stderr, "\n");
+            }
         }
     }
 
