@@ -1280,6 +1280,13 @@ void geo_render_polygons(void)
     if (!raster || !s_destmap)
         return;
 
+    /* The game submits a display list every other field. Rendering is
+     * destructive - projection rewrites each vertex in place - so a field with
+     * no new list keeps the bitmap it already has, as MAME's render_polygons
+     * does when m_render_done is still set. */
+    if (s_render_done)
+        return;
+
     memset(s_destmap, 0, (size_t)FB_STRIDE * FB_HEIGHT * sizeof(uint32_t));
 
     if (raster->poly_list_index == 0)

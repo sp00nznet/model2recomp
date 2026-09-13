@@ -8,6 +8,7 @@
 #include "model2recomp/model2recomp.h"
 #include "model2recomp/i960.h"
 #include "model2recomp/bus.h"
+#include "model2recomp/copro.h"
 #include "model2recomp/func_table.h"
 #include "model2recomp/video.h"
 #include "model2recomp/sound.h"
@@ -127,6 +128,7 @@ bool model2recomp_load_rom(const char *rom_dir)
     load_region(rom_dir, "data.bin",     bus_load_data_rom,   false);
     load_region(rom_dir, "polygons.bin", bus_load_extra_data, false);
     load_region(rom_dir, "textures.bin", bus_load_texture_rom, false);
+    load_region(rom_dir, "copro_tables.bin", copro_load_tables, false);
 
     printf("[model2recomp] ROM loading complete\n");
     return true;
@@ -305,6 +307,22 @@ uint32_t model2recomp_field_sync(void)
         model2recomp_end_frame();
         model2recomp_trigger_vblank();
         model2recomp_dispatch_irq();
+
+        /* MODEL2_SHOT_EVERY=N writes <MODEL2_SCREENSHOT>.<field>.ppm every N
+         * fields, so one run can sample a whole attract cycle. */
+        {
+            static long every = -1;
+            if (every < 0) {
+                const char *e = getenv("MODEL2_SHOT_EVERY");
+                every = e ? strtol(e, NULL, 10) : 0;
+            }
+            const char *shot = getenv("MODEL2_SCREENSHOT");
+            if (every > 0 && shot && (s_fields_done % every) == 0) {
+                char path[1024];
+                snprintf(path, sizeof(path), "%s.%05ld.ppm", shot, s_fields_done);
+                model2recomp_save_ppm(path);
+            }
+        }
 
         bool quit = !model2recomp_begin_frame();
         if (s_frame_limit > 0 && ++s_fields_done >= s_frame_limit) {

@@ -8,6 +8,7 @@
 #include "model2recomp/bus.h"
 #include "model2recomp/model2recomp.h"
 #include "model2recomp/video.h"
+#include "model2recomp/copro.h"
 #include "model2recomp/sound.h"
 #include "model2recomp/io.h"
 #include "model2recomp/timer.h"
@@ -174,7 +175,7 @@ uint32_t bus_read32(uint32_t addr)
     if (addr >= 0x00980000 && addr < 0x00980040) {
         uint32_t reg = (addr - 0x00980000) >> 2;
         switch (reg) {
-            case 0: return copro_ctl1_read();       /* 0x00980000 */
+            case 0: return copro_ctl_read();        /* 0x00980000 */
             case 1: return fifo_control_read();     /* 0x00980004 */
             /* Field status: the frame boundary for the recompiled game. */
             case 3: return model2recomp_field_sync(); /* 0x0098000C */
@@ -437,7 +438,7 @@ void bus_write32(uint32_t addr, uint32_t val)
 
     /* Copro function port: 0x00880000-0x00883FFF */
     if (addr >= 0x00880000 && addr < 0x00884000) {
-        copro_function_port_write(val);
+        copro_function_write((addr - 0x00880000) >> 2, val);
         return;
     }
 
@@ -458,7 +459,7 @@ void bus_write32(uint32_t addr, uint32_t val)
     if (addr >= 0x00980000 && addr < 0x00980040) {
         uint32_t reg = (addr - 0x00980000) >> 2;
         switch (reg) {
-            case 0: copro_ctl1_write(val); return;
+            case 0: copro_ctl_write(val); return;
             case 2: geo_ctl1_write(val); return;
             case 3: videoctl_write(val); return;
             default: return;

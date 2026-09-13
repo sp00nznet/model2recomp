@@ -77,16 +77,10 @@ void geo_ctl1_write(uint32_t data);
 
 /* --- Coprocessor (TGP) interface --- */
 /* Write function port (0x00880000) */
-void copro_function_port_write(uint32_t data);
 
 /* Copro FIFO (0x00884000) */
-void copro_fifo_write(uint32_t data);
-uint32_t copro_fifo_read(void);
 
 /* Copro control */
-void copro_ctl1_write(uint32_t data);
-uint32_t copro_ctl1_read(void);
-uint32_t copro_status_read(void);
 
 /* --- Rasterizer interface --- */
 /* Render mode register (0x10000000) */

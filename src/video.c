@@ -9,6 +9,7 @@
 
 #include "model2recomp/video.h"
 #include "model2recomp/bus.h"
+#include "model2recomp/copro.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -29,16 +30,6 @@ static uint8_t  *s_char_ram = NULL;     /* 512KB System 24 char RAM */
 static uint32_t s_render_mode = 0;
 static uint32_t s_videoctl = 0;
 static uint32_t s_zclip = 0;
-
-/* Coprocessor state */
-static uint32_t s_copro_ctl = 0;
-static uint32_t s_copro_cnt = 0;
-
-/* FIFO */
-#define FIFO_SIZE 256
-static uint32_t s_copro_fifo[FIFO_SIZE];
-static int s_fifo_head = 0;
-static int s_fifo_tail = 0;
 
 #define FB_WIDTH  496
 #define FB_HEIGHT 384
@@ -191,50 +182,6 @@ bool geo_take_list_ready(void)
     return ready;
 }
 
-/* --- Coprocessor (TGP) --- */
-
-void copro_function_port_write(uint32_t data)
-{
-    /* TODO: dispatch TGP function */
-    s_copro_cnt++;
-}
-
-void copro_fifo_write(uint32_t data)
-{
-    int next = (s_fifo_head + 1) % FIFO_SIZE;
-    if (next != s_fifo_tail) {
-        s_copro_fifo[s_fifo_head] = data;
-        s_fifo_head = next;
-    }
-}
-
-uint32_t copro_fifo_read(void)
-{
-    if (s_fifo_head == s_fifo_tail)
-        return 0;
-    uint32_t val = s_copro_fifo[s_fifo_tail];
-    s_fifo_tail = (s_fifo_tail + 1) % FIFO_SIZE;
-    return val;
-}
-
-void copro_ctl1_write(uint32_t data)
-{
-    s_copro_ctl = data;
-    if (data & 0x80000000) {
-        s_copro_cnt = 0; /* Reset copro counter */
-    }
-}
-
-uint32_t copro_ctl1_read(void)
-{
-    return s_copro_ctl;
-}
-
-uint32_t copro_status_read(void)
-{
-    return (s_copro_cnt == 0) ? 0xFFFFFFFF : 0;
-}
-
 /* --- Rasterizer --- */
 
 void render_mode_write(uint32_t data)
@@ -266,12 +213,8 @@ uint32_t fifo_control_read(void)
 {
     /* Bit 0 reports the copro -> i960 output FIFO as empty (MAME
      * model2_state::fifo_control_r). The game spins on this before uploading a
-     * TGP program, so getting the polarity wrong deadlocks the boot.
-     * s_copro_fifo is the i960 -> copro direction, which is not this one.
-     *
-     * ponytail: no copro is emulated, so its output FIFO is always empty.
-     * Track a real output FIFO here once the TGP runs. */
-    return 1;
+     * TGP program, so getting the polarity wrong deadlocks the boot. */
+    return copro_output_empty() ? 1 : 0;
 }
 
 uint32_t tgpid_read(uint32_t offset)

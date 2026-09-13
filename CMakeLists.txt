@@ -15,6 +15,7 @@ add_library(model2recomp STATIC
     src/func_table.c
     src/video.c
     src/geometry.c
+    src/copro.c
     src/sound.c
     src/io.c
     src/timer.c
