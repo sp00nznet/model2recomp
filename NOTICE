@@ -1,0 +1,92 @@
+model2recomp — third-party attribution
+======================================
+
+model2recomp is MIT licensed (see LICENSE). Large parts of the hardware model
+are *ports* of MAME code, and a port is a derivative work: those files stay
+under MAME's BSD-3-Clause licence, with the original copyright intact. They
+are other people's work and are credited as such.
+
+Without MAME's Model 2 driver this library could not exist. The Model 2's
+geometry engine, colour path, and I/O board were reverse-engineered by the
+people named below over two decades; nothing here re-derived any of it.
+
+
+BSD-3-Clause — ported from MAME
+-------------------------------
+
+  https://github.com/mamedev/mame
+  Licence text: LICENSES/BSD-3-Clause.txt
+
+  Files, with the MAME source each was ported from and the copyright that
+  source carries:
+
+    src/geometry.c              sega/model2_v.cpp, sega/model2rd.ipp
+    include/model2recomp/*      (geometry engine, clipping, z-sort,
+                                 projection, texel fetch, colour translate)
+                                (c) R. Belmont; Olivier Galibert; ElSemi;
+                                    Angelo Salese; Matthew Daniels
+
+    src/copro.c                 cpu/mb86233/mb86233.cpp
+    include/model2recomp/copro.h  (MB86233 instruction set, ALU, addressing)
+                                (c) Olivier Galibert
+
+                                sega/model2.cpp
+                                  (copro FIFO protocol, function port
+                                   encoding, math-table ROM addressing,
+                                   banked external memory window)
+                                (c) R. Belmont; Olivier Galibert; ElSemi;
+                                    Angelo Salese; Matthew Daniels
+
+    src/video.c                 sega/model2.cpp, sega/model2_v.cpp
+                                  (geo port registers, frame composition,
+                                   video control register)
+                                (c) R. Belmont; Olivier Galibert; ElSemi;
+                                    Angelo Salese; Matthew Daniels
+
+                                sega/segaic24.cpp
+                                  (System 24 tilemap layer decode)
+                                (c) Olivier Galibert
+
+    src/bus.c                   sega/model2.cpp
+                                  (32-bit address map)
+                                (c) R. Belmont; Olivier Galibert; ElSemi;
+                                    Angelo Salese; Matthew Daniels
+
+    src/timer.c                 sega/model2.cpp
+                                  (countdown timers, interrupt controller)
+                                (c) R. Belmont; Olivier Galibert; ElSemi;
+                                    Angelo Salese; Matthew Daniels
+
+    src/i960.c                  cpu/i960/i960.cpp
+    include/model2recomp/i960.h   (register model, condition codes, call and
+                                   return frame cache, IAC reinitialize)
+                                (c) Farfetch'd; R. Belmont
+
+    src/io.c                    sega/model1io2.cpp
+                                  (I/O board 2 DPRAM command protocol)
+                                (c) Dirk Best
+
+
+Learned from, no code taken
+---------------------------
+
+  src/sound.c is a stub and contains no ported code. When it is implemented it
+  will most likely derive from MAME's sound/multipcm.cpp ((c) Miguel Angel
+  Horna) and sound/scsp.cpp, and this file must be updated when it does.
+
+  The i960 opcode tables used by the lifter in downstream game projects were
+  read out of MAME's cpu/i960/i960.cpp ((c) Farfetch'd; R. Belmont). No MAME
+  source is redistributed here; `ref/` is a local scratch directory and is
+  git-ignored.
+
+
+Everything else
+---------------
+
+  MIT — (c) 2026 sp00nz and contributors.
+
+  That covers the parts with no MAME ancestor: the recompiled-code execution
+  model (func_table.c, the field-sync frame boundary, interrupt dispatch at
+  the field boundary), the on-demand coprocessor scheduler in src/copro.c,
+  the ROM loading layer, eeprom.c, platform_sdl.c, and the public API in
+  include/model2recomp/model2recomp.h.

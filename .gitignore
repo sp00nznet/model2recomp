@@ -1,7 +1,10 @@
 build/
+build-*/
 .vs/
+.vscode/
 *.obj
 *.lib
+*.a
 *.exe
 *.pdb
 *.ilk
@@ -9,4 +12,14 @@ build/
 *.user
 CMakeSettings.json
 out/
+
+# Local scratch for reading MAME sources. Never redistributed.
 ref/
+
+# Agent scratch - never committed.
+CLAUDE.md
+.claude/
+AGENTS.md
+
+# Captures
+*.ppm

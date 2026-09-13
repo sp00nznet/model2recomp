@@ -1,10 +1,12 @@
 /*
- * Model 2 video subsystem - stub implementation.
+ * Model 2 video subsystem: video RAM, the geometry engine's host-side ports,
+ * System 24 tilemap layers, and frame composition.
  *
- * TODO: Port MAME's model2_v.cpp rasterizer and System 24 tilemap engine.
- * For now, provides memory-mapped hardware stubs so recompiled code can run.
+ * The geometry engine and rasterizer themselves live in geometry.c; this file
+ * owns the memory they read and the registers the i960 reaches them through.
  *
- * Reference: MAME model2_v.cpp, segaic24.cpp (BSD-3-Clause)
+ * Ported from MAME's model2.cpp, model2_v.cpp and segaic24.cpp (BSD-3-Clause).
+ * See ../NOTICE.
  */
 
 #include "model2recomp/video.h"

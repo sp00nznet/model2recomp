@@ -4,9 +4,10 @@
  * Provides Model 2 hardware as linkable C libraries:
  *   - i960 CPU context (registers, flags, call stack)
  *   - Memory bus (32-bit address space routing to hardware)
- *   - TGP geometry coprocessor (MB86234 DSP)
- *   - Video renderer (3D polygon rasterizer + System 24 tilemaps)
- *   - Sound (68000 + MultiPCM / SCSP)
+ *   - Geometry engine + 3D polygon rasterizer (modelled directly)
+ *   - MB86233 "TGP" math coprocessor (emulated; runs game-uploaded microcode)
+ *   - System 24 tilemaps, palette, colour translate and luma RAM
+ *   - Sound (68000 + MultiPCM / SCSP) - stub, no audio
  *   - I/O (lightgun, buttons, coins via I/O board)
  *   - Timers, interrupts, EEPROM
  *
@@ -24,7 +25,13 @@
 extern "C" {
 #endif
 
-/* Board variant */
+/*
+ * Board variant.
+ *
+ * Only MODEL2_ORIGINAL is implemented. The others are accepted and named in
+ * the startup log, but no code branches on them: 2B needs a SHARC core, 2C a
+ * TGPx4, and everything from 2A onward needs SCSP rather than MultiPCM.
+ */
 typedef enum {
     MODEL2_ORIGINAL,    /* Original Model 2 (1993) - TGP, 68000+MultiPCM */
     MODEL2A_CRX,        /* Model 2A-CRX (1994) - TGP, 68000+SCSP */
@@ -39,8 +46,18 @@ typedef enum {
 bool model2recomp_init(const char *window_title, int scale, model2_variant_t variant);
 
 /*
- * Load ROM set from a directory containing the MAME-format ZIP contents.
- * Expects: program ROMs, data ROMs, texture ROMs, sound ROMs, copro ROMs.
+ * Load flat, region-sized binary images from a directory. These are not ROM
+ * files - a game project's tooling produces them from a ROM set, interleaving
+ * the 16-bit halves into 32-bit words.
+ *
+ *   program.bin       required; the i960 program image
+ *   data.bin          game data
+ *   polygons.bin      3D models, read by the geometry engine
+ *   textures.bin      texture sheets
+ *   copro_tables.bin  coprocessor sin/cos, atan, 1/x and 1/sqrt(x) tables
+ *
+ * Only program.bin is required; a missing image disables its subsystem rather
+ * than failing the load.
  */
 bool model2recomp_load_rom(const char *rom_dir);
 
