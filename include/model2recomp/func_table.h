@@ -13,6 +13,8 @@
 
 #ifdef __cplusplus
 extern "C" {
+void func_table_dump_ring(void);
+
 #endif
 
 /* All recompiled functions take no args and return nothing.

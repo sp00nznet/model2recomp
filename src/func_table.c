@@ -21,9 +21,28 @@ unsigned long g_dispatches;
 static uint32_t s_ring[32];
 static int s_ring_pos;
 
+/* MODEL2_PROFILE counts dispatches per function and prints the busiest at
+ * exit: when the game stops making progress, the loop it is stuck in is at
+ * the top, and diffing that against a run that does progress names the
+ * function that is waiting. */
+static uint32_t s_prof_addr[8192];
+static uint32_t s_prof_hits[8192];
+
+static void prof_dump(void)
+{
+    for (int i = 0; i < 8192; i++)
+        for (int j = i + 1; j < 8192; j++)
+            if (s_prof_hits[j] > s_prof_hits[i]) {
+                uint32_t t = s_prof_hits[i]; s_prof_hits[i] = s_prof_hits[j]; s_prof_hits[j] = t;
+                t = s_prof_addr[i]; s_prof_addr[i] = s_prof_addr[j]; s_prof_addr[j] = t;
+            }
+    for (int i = 0; i < 25 && s_prof_hits[i]; i++)
+        fprintf(stderr, "[prof] %08X %u\n", s_prof_addr[i], s_prof_hits[i]);
+}
+
 /* MODEL2_RING dumps the last 32 dispatches at exit: when the game stops
  * making progress, this names the loop it is stuck in. */
-static void ring_dump(void)
+void func_table_dump_ring(void)
 {
     fprintf(stderr, "[ring]");
     for (int i = 0; i < 32; i++)
@@ -56,7 +75,8 @@ void func_table_init(void)
     memset(s_table, 0, sizeof(s_table));
     s_call_depth = 0;
     s_miss_count = 0;
-    if (getenv("MODEL2_RING")) atexit(ring_dump);
+    if (getenv("MODEL2_RING")) atexit(func_table_dump_ring);
+    if (getenv("MODEL2_PROFILE")) atexit(prof_dump);
     printf("[func_table] Initialized (%d slots)\n", TABLE_SIZE);
 }
 
@@ -132,6 +152,23 @@ bool func_table_call(uint32_t i960_addr)
 
     s_call_depth++;
     g_dispatches++;
+    {
+        /* MODEL2_CALLERS=0xADDR counts who dispatches to one function. */
+        static uint32_t s_watch_fn = 1;
+        if (s_watch_fn == 1) {
+            const char *e = getenv("MODEL2_CALLERS");
+            s_watch_fn = e ? (uint32_t)strtoul(e, NULL, 0) : 0;
+        }
+        uint32_t key = (s_watch_fn && i960_addr == s_watch_fn)
+                     ? g_cur_func : i960_addr;
+        if (s_watch_fn && i960_addr != s_watch_fn)
+            key = 0;
+        uint32_t h = hash_addr(key);
+        while (s_prof_addr[h] && s_prof_addr[h] != key)
+            h = (h + 1) & TABLE_MASK;
+        s_prof_addr[h] = key;
+        s_prof_hits[h]++;
+    }
     s_ring[s_ring_pos] = i960_addr; s_ring_pos = (s_ring_pos + 1) & 31;
     uint32_t prev = g_cur_func; g_cur_func = i960_addr;
     uint32_t sp_in = g_i960.r[1];

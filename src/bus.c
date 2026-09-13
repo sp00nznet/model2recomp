@@ -405,6 +405,10 @@ void bus_write32(uint32_t addr, uint32_t val)
             float f; memcpy(&f, &val, 4);
             extern uint32_t g_cur_func;
             fprintf(stderr, "[watch] %08X = %08X (%g) in %08X g14=%08X fp=%08X sp=%08X\n", addr, val, (double)f, g_cur_func, g_i960.r[30], g_i960.r[31], g_i960.r[1]);
+            if (getenv("MODEL2_WATCHPATH")) {
+                extern void func_table_dump_ring(void);
+                func_table_dump_ring();
+            }
         }
     }
 
