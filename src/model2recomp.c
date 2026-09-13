@@ -25,6 +25,7 @@
 #define FB_HEIGHT 384
 
 static model2_variant_t s_variant;
+static long s_fields_done = 0;
 static bool s_initialized = false;
 
 /* Audio buffer for one frame (~735 stereo samples at 44100/60) */
@@ -144,31 +145,66 @@ bool model2recomp_begin_frame(void)
 
     /* Update input from mouse (lightgun) */
     int mx, my;
-    bool mleft, mright;
-    platform_get_mouse(&mx, &my, &mleft, &mright);
+    bool mleft, mright, mmiddle;
+    platform_get_mouse(&mx, &my, &mleft, &mright, &mmiddle);
 
-    /* Map mouse to lightgun coordinates */
-    io_set_lightgun(0, (uint16_t)mx, (uint16_t)my, false);
+    /*
+     * The mouse is player 1's lightgun. Left button fires at the crosshair;
+     * right button fires off-screen, which is how Virtua Cop reloads, so it
+     * pulls the same trigger but parks the gun outside the calibrated range.
+     * Middle button drops a coin.
+     */
+    bool offscreen = mright;
+    io_set_lightgun(0, (uint16_t)mx, (uint16_t)my, offscreen);
 
-    /* Map mouse buttons to triggers */
     uint8_t in1 = 0xFF;
-    if (mleft)  in1 &= ~IN1_P1_TRIGGER;
-    if (mright) in1 &= ~IN1_P2_TRIGGER;
+    if (mleft || mright) in1 &= ~IN1_P1_TRIGGER;
     io_set_input(1, in1);
 
-    /* Map keyboard to service/test/coin/start.
-     * MODEL2_HOLD holds one of them down for headless runs, so an automated
-     * boot test can reach the service menu and screenshot it. */
-    static const char *hold = NULL;
-    static bool hold_read = false;
-    if (!hold_read) { hold = getenv("MODEL2_HOLD"); hold_read = true; }
+    /*
+     * MODEL2_INPUT drives buttons for headless runs. It takes a comma
+     * separated list and *pulses* each one - 6 fields down, 54 up, staggered
+     * so they do not overlap - because coins and start are edge triggered and
+     * a held button produces exactly one edge and then nothing.
+     *
+     *   MODEL2_INPUT=coin1,start1   insert coins and press start, repeatedly
+     *   MODEL2_INPUT=fire           pull the trigger at the crosshair
+     *   MODEL2_INPUT=reload         fire off-screen
+     */
+    static char script[128];
+    static bool script_read = false;
+    if (!script_read) {
+        const char *e = getenv("MODEL2_INPUT");
+        if (e) { strncpy(script, e, sizeof(script) - 1); }
+        script_read = true;
+    }
 
     uint8_t in0 = 0xFF;
-    if (hold) {
-        if (!strcmp(hold, "test"))    in0 &= ~IN0_TEST;
-        if (!strcmp(hold, "service")) in0 &= ~IN0_SERVICE;
-        if (!strcmp(hold, "start1"))  in0 &= ~IN0_START1;
-        if (!strcmp(hold, "coin1"))   in0 &= ~IN0_COIN1;
+    if (mmiddle) in0 &= ~IN0_COIN1;
+
+    if (script[0]) {
+        int slot = 0;
+        for (const char *p = script; *p; slot++) {
+            const char *comma = strchr(p, ',');
+            size_t len = comma ? (size_t)(comma - p) : strlen(p);
+
+            /* The test switch is a switch, not a button - hold it. */
+            if (!strncmp(p, "test", len) && len == 4) in0 &= ~IN0_TEST;
+
+            long phase = (s_fields_done + (long)slot * 20) % 60;
+            if (phase < 6) {
+                if (!strncmp(p, "service", len)) in0 &= ~IN0_SERVICE;
+                if (!strncmp(p, "start1", len))  in0 &= ~IN0_START1;
+                if (!strncmp(p, "start2", len))  in0 &= ~IN0_START2;
+                if (!strncmp(p, "coin1", len))   in0 &= ~IN0_COIN1;
+                if (!strncmp(p, "coin2", len))   in0 &= ~IN0_COIN2;
+                if (!strncmp(p, "fire", len))    { in1 &= ~IN1_P1_TRIGGER; }
+                if (!strncmp(p, "reload", len))  { in1 &= ~IN1_P1_TRIGGER; offscreen = true; }
+            }
+            p = comma ? comma + 1 : p + len;
+        }
+        io_set_lightgun(0, (uint16_t)mx, (uint16_t)my, offscreen);
+        io_set_input(1, in1);
     }
     if (platform_key_pressed(SDL_SCANCODE_5))     in0 &= ~IN0_COIN1;
     if (platform_key_pressed(SDL_SCANCODE_6))     in0 &= ~IN0_COIN2;
@@ -177,6 +213,10 @@ bool model2recomp_begin_frame(void)
     if (platform_key_pressed(SDL_SCANCODE_1))     in0 &= ~IN0_START1;
     if (platform_key_pressed(SDL_SCANCODE_2))     in0 &= ~IN0_START2;
     io_set_input(0, in0);
+
+    /* Nothing above this line is visible to the game until it lands in the
+     * I/O board's DPRAM, which is the only place the game looks. */
+    io_update_dpram(FB_WIDTH, FB_HEIGHT);
 
     return true;
 }
@@ -254,8 +294,46 @@ void model2recomp_dispatch_irq(void)
             continue;   /* line is in IAC mode, which the hardware never uses here */
 
         uint32_t handler = bus_read32(int_tab + 36 + (vector - 8) * 4);
-        if (handler)
+        if (!handler)
+            continue;
+
+        /*
+         * How the handler is entered - MODEL2_IRQMODE, default 0.
+         *
+         * 0 (default) calls it bare. That is not what the hardware does: an
+         * interrupt pushes a frame, and this handler ends in a plain "ret"
+         * that pops one, so every field pops a frame nobody pushed. The frame
+         * pointer walks down the chain until it leaves work RAM, after which
+         * every frame-relative load in the guest reads ROM. On Virtua Cop one
+         * of those reads is a palette fade counter, and the bogus fade that
+         * results writes the i960 boot header over the polygon palette - which
+         * is why most of its scenery draws black.
+         *
+         * 1 and 2 are the faithful models: push a frame for the handler, or
+         * snapshot and restore the whole context around it. Both stop the game
+         * submitting any display list at all, permanently, for reasons not yet
+         * understood - it executes *more* code, not less, so it is not simply
+         * stuck. Until that is worked out, 0 is the mode that produces a
+         * picture, and the modes are a knob rather than a decision.
+         *
+         * See docs/technical/debugging.md.
+         */
+        const char *m = getenv("MODEL2_IRQMODE");
+        switch (m ? atoi(m) : 0) {
+        case 1:
+            i960_do_call(handler, 0);
             func_table_call(handler);
+            break;
+        case 2: {
+            I960Context saved = g_i960;
+            func_table_call(handler);
+            g_i960 = saved;
+            break;
+        }
+        default:
+            func_table_call(handler);
+            break;
+        }
     }
 }
 
@@ -283,7 +361,6 @@ void model2recomp_save_ppm(const char *path)
 #define VIDEOCTL_FIELD 0x4   /* bit 2 of 0x0098000C toggles each field */
 
 static long s_frame_limit = 0;
-static long s_fields_done = 0;
 
 void model2recomp_set_frame_limit(long fields)
 {
@@ -305,6 +382,18 @@ uint32_t model2recomp_field_sync(void)
         if (geo_take_list_ready())
             geo_parse();
         model2recomp_end_frame();
+        /* MODEL2_POLYCOUNT=N reports how many polygons the geometry engine
+         * produced, every N fields. Zero means the game is not submitting a
+         * display list, which is a different problem from one that does not
+         * draw. */
+        {
+            const char *pc = getenv("MODEL2_POLYCOUNT");
+            long every = pc ? atol(pc) : 0;
+            if (every > 0 && (s_fields_done % every) == 0)
+                fprintf(stderr, "[poly] f%ld count=%u\n",
+                        s_fields_done, geo_polygon_count());
+        }
+
         model2recomp_trigger_vblank();
         model2recomp_dispatch_irq();
 

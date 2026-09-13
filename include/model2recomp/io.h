@@ -24,11 +24,13 @@
 extern "C" {
 #endif
 
-/* Input port bit definitions - IN0 */
+/* Input port bit definitions - IN0, from MAME's model2 port table.
+ * Bit 2 is the service-mode (test) switch and bit 3 is the service button
+ * that adds a credit; they were the wrong way round here until 2026-09-13. */
 #define IN0_COIN1       (1 << 0)
 #define IN0_COIN2       (1 << 1)
-#define IN0_SERVICE     (1 << 2)
-#define IN0_TEST        (1 << 3)
+#define IN0_TEST        (1 << 2)   /* service-mode switch, held */
+#define IN0_SERVICE     (1 << 3)   /* service button, momentary */
 #define IN0_START1      (1 << 4)
 #define IN0_START2      (1 << 5)
 
@@ -60,10 +62,11 @@ void io_set_lightgun(int player, uint16_t x, uint16_t y, bool offscreen);
 lightgun_state_t io_get_lightgun(int player);
 
 /* Lightgun data read (0x00E80040+) */
-uint8_t lightgun_data_read(uint32_t offset);
-uint8_t lightgun_mux_read(void);
-void lightgun_mux_write(uint8_t data);
-uint8_t lightgun_offscreen_read(void);
+/* Copy the current input and lightgun state into DPRAM where the game reads
+ * it. Call once per field, after the platform layer has sampled the host.
+ * Lightgun coordinates go in as screen pixels and are scaled to the gun's
+ * calibrated 10-bit range here. */
+void io_update_dpram(uint16_t screen_w, uint16_t screen_h);
 
 /* --- Lamp/coin counter outputs --- */
 void lamp_output_write(uint8_t data);

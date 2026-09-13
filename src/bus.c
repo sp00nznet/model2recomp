@@ -8,6 +8,7 @@
 #include "model2recomp/bus.h"
 #include "model2recomp/model2recomp.h"
 #include "model2recomp/video.h"
+#include "model2recomp/i960.h"
 #include "model2recomp/copro.h"
 #include "model2recomp/sound.h"
 #include "model2recomp/io.h"
@@ -229,10 +230,16 @@ uint32_t bus_read32(uint32_t addr)
         return (uint32_t)colorxlat_read(off) | ((uint32_t)colorxlat_read(off + 1) << 16);
     }
 
-    /* DPRAM (I/O board): 0x01C00000-0x01C00FFF, mask 0x00FF00FF */
+    /* DPRAM (I/O board): 0x01C00000-0x01C00FFF.
+     *
+     * MB8421 is 2Kx8 on a 32-bit bus with byte lanes 0 and 2 populated
+     * (MAME's umask32(0x00ff00ff)), so 0x1000 bytes of i960 space cover 0x800
+     * DPRAM bytes: each dword holds two consecutive ones. The game reads them
+     * with 16-bit loads at consecutive even addresses, which is only
+     * consecutive in DPRAM if the halving is done here. */
     if (addr >= 0x01C00000 && addr < 0x01C01000) {
-        uint32_t off = addr - 0x01C00000;
-        return (uint32_t)dpram_read(off) | ((uint32_t)dpram_read(off + 2) << 16);
+        uint32_t d = (addr - 0x01C00000) >> 1;
+        return (uint32_t)dpram_read(d) | ((uint32_t)dpram_read(d + 1) << 16);
     }
 
     /* UART: 0x01C80000-0x01C80003 */
@@ -391,6 +398,16 @@ void bus_write32(uint32_t addr, uint32_t val)
 {
     addr &= ~3;
 
+    {
+        static const char *watch_env; static uint32_t watch;
+        if (!watch_env) { watch_env = getenv("MODEL2_WATCH"); if (!watch_env) watch_env = ""; watch = (uint32_t)strtoul(watch_env, NULL, 0); }
+        if (watch && addr == watch) {
+            float f; memcpy(&f, &val, 4);
+            extern uint32_t g_cur_func;
+            fprintf(stderr, "[watch] %08X = %08X (%g) in %08X g14=%08X fp=%08X sp=%08X\n", addr, val, (double)f, g_cur_func, g_i960.r[30], g_i960.r[31], g_i960.r[1]);
+        }
+    }
+
     /* Interrupt control register (synmov, not an IAC message) */
     if (addr == IAC_ICR) {
         s_i960_icr = val;
@@ -528,11 +545,11 @@ void bus_write32(uint32_t addr, uint32_t val)
         return;
     }
 
-    /* DPRAM: 0x01C00000-0x01C00FFF */
+    /* DPRAM: 0x01C00000-0x01C00FFF (see bus_read32 for the lane mapping) */
     if (addr >= 0x01C00000 && addr < 0x01C01000) {
-        uint32_t off = addr - 0x01C00000;
-        dpram_write(off, (uint8_t)val);
-        dpram_write(off + 2, (uint8_t)(val >> 16));
+        uint32_t d = (addr - 0x01C00000) >> 1;
+        dpram_write(d, (uint8_t)val);
+        dpram_write(d + 1, (uint8_t)(val >> 16));
         return;
     }
 

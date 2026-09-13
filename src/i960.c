@@ -98,7 +98,6 @@ void i960_do_call(uint32_t target_addr, uint32_t return_addr)
 void i960_do_ret(void)
 {
     uint32_t old_pfp = I960_PFP & ~0x3f;
-
     if (g_i960.rcache_pos > 0) {
         /* Restore from cache */
         g_i960.rcache_pos--;

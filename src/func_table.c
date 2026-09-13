@@ -6,6 +6,7 @@
  */
 
 #include "model2recomp/func_table.h"
+#include "model2recomp/i960.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +25,7 @@ typedef struct {
 
 static table_entry_t s_table[TABLE_SIZE];
 static int s_call_depth = 0;
+uint32_t g_cur_func = 0;   /* debug: MODEL2_WATCH */
 static int s_miss_count = 0;
 
 static inline uint32_t hash_addr(uint32_t addr)
@@ -107,7 +109,9 @@ bool func_table_call(uint32_t i960_addr)
     }
 
     s_call_depth++;
+    uint32_t prev = g_cur_func; g_cur_func = i960_addr;
     func();
+    g_cur_func = prev;
     s_call_depth--;
     return true;
 }

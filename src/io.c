@@ -10,6 +10,7 @@
 
 #include "model2recomp/io.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* Input port state */
@@ -18,15 +19,37 @@ static uint8_t s_input_ports[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
 /* Lightgun state */
 static lightgun_state_t s_lightgun[2];
 
-/* Lightgun mux register */
-static uint8_t s_lightgun_mux = 0;
-
 /* DPRAM */
 static uint8_t s_dpram[0x1000];
 
-/* I/O board DPRAM registers */
-#define DPRAM_CMD    0x40   /* command; board zeroes it when the command completes */
-#define DPRAM_STATUS 0x42   /* board status, bit 6 = ready */
+/*
+ * DPRAM layout, as the board's Z80 firmware leaves it. These are DPRAM byte
+ * offsets; the i960 reaches byte N at 0x01C00000 + N*2, because only two of
+ * every four byte lanes are populated (see bus.c).
+ *
+ * The offsets were read out of the game rather than guessed: 0x00001300 reads
+ * 0x08/0x09/0x0A/0x11, composes them into one word and inverts it, and
+ * 0x000014F0 reads nine bytes at 0x80 as four little-endian coordinates plus a
+ * status byte - which is exactly the layout of model1io2's lightgun FPGA.
+ */
+#define DPRAM_IN0     0x08  /* coin, service, test, start          (active low) */
+#define DPRAM_IN1     0x09  /* player triggers                     (active low) */
+#define DPRAM_IN2     0x0A  /* board DIPs, incl. "No Enemies"      (active low) */
+#define DPRAM_IN3     0x11  /* fourth input byte, unused by this game */
+#define DPRAM_CMD     0x20  /* command; board zeroes it when the command completes */
+#define DPRAM_STATUS  0x21  /* board status, bit 6 = ready */
+#define DPRAM_GUN     0x80  /* P1 Y, P1 X, P2 Y, P2 X, then offscreen flags */
+
+/*
+ * Lightgun calibration, from MAME's vcop input ports. The gun reports 10-bit
+ * values over these ranges rather than 0..screen, and the game's crosshair
+ * maths assumes them.
+ */
+#define GUN_X_MIN 0x083
+#define GUN_X_MAX 0x276
+#define GUN_Y_MIN 0x024
+#define GUN_Y_MAX 0x1A9
+#define GUN_BORDER 0.05f    /* fraction of range that counts as off-screen */
 
 /* Lamp output */
 static uint8_t s_lamp_state = 0;
@@ -40,7 +63,10 @@ void io_init(void)
      * NVRAM-restore path (0x2D248) waits on both before issuing command 3. */
     s_dpram[DPRAM_CMD] = 0x00;
     s_dpram[DPRAM_STATUS] = 0x40;
-    s_lightgun_mux = 0;
+    s_dpram[DPRAM_IN0] = 0xFF;
+    s_dpram[DPRAM_IN1] = 0xFF;
+    s_dpram[DPRAM_IN2] = 0xFF;
+    s_dpram[DPRAM_IN3] = 0xFF;
     s_lamp_state = 0;
 
     printf("[io] I/O board initialized\n");
@@ -117,66 +143,62 @@ lightgun_state_t io_get_lightgun(int player)
 }
 
 /*
- * Lightgun data read.
- * Port order: P1_Y(0), P1_X(1), P2_Y(2), P2_X(3)
- * Each is 10-bit, read as two bytes (low, high).
+ * Publish the host's input state into DPRAM, once per field.
+ *
+ * On real hardware the board's Z80 samples its ports and the lightgun FPGA and
+ * copies the result here; with no Z80 emulated, this is that copy. Everything
+ * the game reads about input comes from these bytes, so this is the whole of
+ * the input path.
  */
-uint8_t lightgun_data_read(uint32_t offset)
+static uint16_t gun_scale(uint16_t v, uint16_t range, uint16_t lo, uint16_t hi)
 {
-    uint16_t data;
-    int port = offset >> 1;
-
-    switch (port) {
-        case 0: data = s_lightgun[0].y; break;  /* P1_Y */
-        case 1: data = s_lightgun[0].x; break;  /* P1_X */
-        case 2: data = s_lightgun[1].y; break;  /* P2_Y */
-        case 3: data = s_lightgun[1].x; break;  /* P2_X */
-        default: data = 0; break;
-    }
-
-    return (offset & 1) ? (uint8_t)(data >> 8) : (uint8_t)data;
+    if (range == 0) return lo;
+    if (v >= range) v = (uint16_t)(range - 1);
+    return (uint16_t)(lo + ((uint32_t)v * (hi - lo)) / (range - 1));
 }
 
-uint8_t lightgun_mux_read(void)
+static bool gun_in_border(uint16_t x, uint16_t y)
 {
-    if (s_lightgun_mux < 8)
-        return lightgun_data_read(s_lightgun_mux);
-    else
-        return lightgun_offscreen_read();
+    int bx = (int)((GUN_X_MAX - GUN_X_MIN) * GUN_BORDER);
+    int by = (int)((GUN_Y_MAX - GUN_Y_MIN) * GUN_BORDER);
+
+    return x <= GUN_X_MIN + bx || x >= GUN_X_MAX - bx ||
+           y <= GUN_Y_MIN + by || y >= GUN_Y_MAX - by;
 }
 
-void lightgun_mux_write(uint8_t data)
+void io_update_dpram(uint16_t screen_w, uint16_t screen_h)
 {
-    s_lightgun_mux = data;
-}
+    s_dpram[DPRAM_IN0] = s_input_ports[0];
+    s_dpram[DPRAM_IN1] = s_input_ports[1];
+    s_dpram[DPRAM_IN2] = s_input_ports[2];
+    s_dpram[DPRAM_IN3] = s_input_ports[3];
 
-uint8_t lightgun_offscreen_read(void)
-{
-    uint8_t data = 0xFC; /* bits 0-1 are offscreen flags */
+    uint8_t offscreen = 0xFC;   /* bits 0-1 are the per-player flags */
 
-    /* 5% border detection */
-    #define BORDER_SIZE 0.05f
-    #define MAX_GUN_X 319
-    #define MAX_GUN_Y 239
+    for (int p = 0; p < 2; p++) {
+        uint16_t gx = gun_scale(s_lightgun[p].x, screen_w, GUN_X_MIN, GUN_X_MAX);
+        uint16_t gy = gun_scale(s_lightgun[p].y, screen_h, GUN_Y_MIN, GUN_Y_MAX);
 
-    int border_x = (int)(MAX_GUN_X * BORDER_SIZE);
-    int border_y = (int)(MAX_GUN_Y * BORDER_SIZE);
+        /* Shooting off-screen is how Virtua Cop reloads, so a forced
+         * off-screen shot has to read as one: park the gun outside the
+         * calibrated range rather than only setting the flag, because the
+         * game cross-checks the coordinates against it. */
+        if (s_lightgun[p].offscreen) {
+            gx = GUN_X_MIN;
+            gy = GUN_Y_MIN;
+        }
 
-    /* Player 1 */
-    if (s_lightgun[0].x <= border_x || s_lightgun[0].x >= MAX_GUN_X - border_x ||
-        s_lightgun[0].y <= border_y || s_lightgun[0].y >= MAX_GUN_Y - border_y ||
-        s_lightgun[0].offscreen) {
-        data |= 1;
+        uint32_t base = DPRAM_GUN + p * 4;
+        s_dpram[base + 0] = (uint8_t)gy;
+        s_dpram[base + 1] = (uint8_t)(gy >> 8);
+        s_dpram[base + 2] = (uint8_t)gx;
+        s_dpram[base + 3] = (uint8_t)(gx >> 8);
+
+        if (s_lightgun[p].offscreen || gun_in_border(gx, gy))
+            offscreen |= (uint8_t)(1 << p);
     }
 
-    /* Player 2 */
-    if (s_lightgun[1].x <= border_x || s_lightgun[1].x >= MAX_GUN_X - border_x ||
-        s_lightgun[1].y <= border_y || s_lightgun[1].y >= MAX_GUN_Y - border_y ||
-        s_lightgun[1].offscreen) {
-        data |= 2;
-    }
-
-    return data;
+    s_dpram[DPRAM_GUN + 8] = offscreen;
 }
 
 void lamp_output_write(uint8_t data)

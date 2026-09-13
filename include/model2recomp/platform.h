@@ -33,7 +33,8 @@ void platform_queue_audio(const int16_t *samples, int num_samples);
 void platform_frame_sync(void);
 
 /* Get mouse position and button state (for lightgun) */
-void platform_get_mouse(int *x, int *y, bool *left_button, bool *right_button);
+void platform_get_mouse(int *x, int *y, bool *left_button, bool *right_button,
+                        bool *middle_button);
 
 /* Get keyboard state */
 bool platform_key_pressed(int scancode);

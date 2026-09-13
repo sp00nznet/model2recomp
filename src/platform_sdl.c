@@ -141,10 +141,24 @@ void platform_frame_sync(void)
     s_frame_start = SDL_GetPerformanceCounter();
 }
 
-void platform_get_mouse(int *x, int *y, bool *left_button, bool *right_button)
+void platform_get_mouse(int *x, int *y, bool *left_button, bool *right_button,
+                        bool *middle_button)
 {
     int mx, my;
     uint32_t buttons = SDL_GetMouseState(&mx, &my);
+
+    /* With the window unfocused the pointer is wherever the desktop left it,
+     * which aims the lightgun somewhere arbitrary - and off-screen means
+     * "reload" to this game. Park it in the centre instead, so a headless run
+     * is repeatable. */
+    if (!(SDL_GetWindowFlags(s_window) & SDL_WINDOW_MOUSE_FOCUS)) {
+        if (x) *x = s_width / 2;
+        if (y) *y = s_height / 2;
+        if (left_button) *left_button = false;
+        if (right_button) *right_button = false;
+        if (middle_button) *middle_button = false;
+        return;
+    }
 
     /* Scale mouse coordinates to game resolution */
     int ww, wh;
@@ -152,8 +166,9 @@ void platform_get_mouse(int *x, int *y, bool *left_button, bool *right_button)
 
     if (x) *x = (mx * s_width) / ww;
     if (y) *y = (my * s_height) / wh;
-    if (left_button)  *left_button  = (buttons & SDL_BUTTON_LMASK) != 0;
-    if (right_button) *right_button = (buttons & SDL_BUTTON_RMASK) != 0;
+    if (left_button)   *left_button   = (buttons & SDL_BUTTON_LMASK) != 0;
+    if (right_button)  *right_button  = (buttons & SDL_BUTTON_RMASK) != 0;
+    if (middle_button) *middle_button = (buttons & SDL_BUTTON_MMASK) != 0;
 }
 
 bool platform_key_pressed(int scancode)

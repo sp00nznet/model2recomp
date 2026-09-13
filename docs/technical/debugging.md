@@ -11,7 +11,10 @@ environment variables and one technique that answers most questions.
 | `MODEL2_TRACE=N` | Print the first N function dispatches, indented by call depth |
 | `MODEL2_SCREENSHOT=path` | Write the final frame as a binary PPM when the frame limit is reached |
 | `MODEL2_SHOT_EVERY=N` | With `MODEL2_SCREENSHOT` set, also write `path.<field>.ppm` every N fields |
-| `MODEL2_HOLD=test\|service\|start1\|coin1` | Hold a button down for a headless run. **Currently inert** — see [hardware-overview.md](hardware-overview.md#what-is-not-modelled); host input does not reach the guest yet. |
+| `MODEL2_INPUT=a,b,...` | Drive buttons for a headless run — `coin1`, `coin2`, `start1`, `start2`, `service`, `fire`, `reload`, `test`. Each is **pulsed** (6 fields down, 54 up, staggered), because coins and start are edge triggered and a held button gives one edge and then nothing. `test` is a switch and is held. |
+| `MODEL2_POLYCOUNT=N` | Every N fields, print how many polygons the geometry engine produced. Zero means the game is not submitting a display list — a different problem from one that draws nothing. |
+| `MODEL2_WATCH=0xADDR` | Print every 32-bit write to that address, with the value, the guest function doing it, and FP/SP. A memory watchpoint, and the fastest way to find who corrupted something. |
+| `MODEL2_IRQMODE=0\|1\|2` | How the interrupt handler is entered. See **The interrupt frame** below. |
 
 A game project normally adds its own field limit (Virtua Cop uses
 `VCOP_MAX_FRAMES=N`), because the guest's busy-wait gives no other place to
@@ -85,6 +88,45 @@ not to call the next. Go read it.
 If the search reports *no executed ancestor at all*, the function is not
 reachable in your call graph, which usually means the lifter never found its
 entry point. That is how Virtua Cop's scene renderer was found.
+
+## The interrupt frame
+
+This one is worth knowing about before it wastes your afternoon, because it
+produces symptoms that look like anything but what it is.
+
+Recompiled code has no instruction boundary to interrupt, so the handler is
+called at the field boundary. On real hardware, taking an interrupt **pushes a
+stack frame**, and the handler ends in a plain `ret` that pops it. Called bare,
+that `ret` pops a frame nobody pushed — once per field.
+
+The frame pointer then walks down the chain and, within a few hundred fields,
+leaves work RAM entirely:
+
+```
+[watch] ... fp=00500500   [watch] ... fp=005004C0   [watch] ... fp=00500440
+[watch] ... fp=00000000   [watch] ... fp=00000100   [watch] ... fp=0A0009C0
+```
+
+After that every frame-relative load in the guest reads whatever is at that
+address — ROM, or nothing. A compiler stores short-lived temporaries relative
+to the frame pointer, so the guest starts computing with values it never wrote.
+On Virtua Cop one of them is a palette fade counter, and the resulting bogus
+fade copies the i960's boot header over the polygon palette, which is why most
+of its scenery renders black.
+
+`MODEL2_IRQMODE` selects the model:
+
+| Mode | What |
+|---|---|
+| `0` (default) | Call the handler bare. Wrong, but it is the mode in which the reference title renders. |
+| `1` | `i960_do_call` first, so the handler's `ret` pops its own frame. What the hardware does. |
+| `2` | Snapshot the whole context, call, restore. Equivalent guarantee, simpler. |
+
+**Modes 1 and 2 stop the game submitting any display list at all** — permanently,
+from the first field. It is not stuck: it executes *more* distinct functions
+than mode 0 does, so the faithful model lets it get further into its own logic
+and then somewhere else goes wrong. Whatever that is has not been found yet. If
+you are looking for one thing to fix in this library, it is this.
 
 ## Comparing against MAME
 

@@ -152,9 +152,10 @@ on real hardware anyway. See [execution-model.md](execution-model.md).
 
 - **Sound.** `src/sound.c` answers the UART handshake so the game does not
   wait forever. There is no 68000, no YM3438, no MultiPCM, and no audio.
-- **Host input reaching the game.** `io_set_input` and `io_set_lightgun` store
-  state, and the I/O board's DPRAM command protocol works, but nothing copies
-  the former into the latter — so buttons do not reach the guest.
+- **The I/O board's Z80.** MAME runs the board's real firmware; this publishes
+  what that firmware would have left in DPRAM (`io_update_dpram`). Buttons and
+  the lightgun do reach the guest; the board's EEPROM, which holds coinage and
+  game settings, does not.
 - **Board variants** other than the original — see [porting-targets.md](porting-targets.md) for how far each one is.
 - **Rasterizer filtering.** Point sampling only: no bilinear, no mipmaps, no
   microtexture.
