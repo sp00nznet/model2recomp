@@ -1066,15 +1066,23 @@ def split_bank_image(data, prog_end):
     is returned unchanged.
     """
     if prog_end <= BANK_SIZE or prog_end > 2 * BANK_SIZE:
-        return data, prog_end
+        return data, prog_end, []
 
     image = bytearray(SECOND_BANK_BASE + BANK_SIZE)
     image[:BANK_SIZE] = data[:BANK_SIZE]
     tail = data[BANK_SIZE:prog_end]
     image[SECOND_BANK_BASE:SECOND_BANK_BASE + len(tail)] = tail
-    print(f'Two-bank program: 0x{BANK_SIZE:X} at 0x000000, '
+
+    # Where the first bank's code actually stops, so the last function in it
+    # is not given an extent that runs across the hole to the second bank.
+    first_end = BANK_SIZE
+    while first_end > 0 and data[first_end - 1] in (0x00, 0xFF):
+        first_end -= 1
+    first_end = (first_end + 3) & ~3
+
+    print(f'Two-bank program: 0x{first_end:X} at 0x000000, '
           f'0x{len(tail):X} at 0x{SECOND_BANK_BASE:06X}')
-    return bytes(image), SECOND_BANK_BASE + len(tail)
+    return bytes(image), SECOND_BANK_BASE + len(tail), [first_end]
 
 
 def main():
@@ -1103,7 +1111,7 @@ def main():
         prog_end -= 1
     prog_end = (prog_end + 3) & ~3
 
-    data, prog_end = split_bank_image(data, prog_end)
+    data, prog_end, extent_stops = split_bank_image(data, prog_end)
 
     # The interrupt table can live in the data ROM rather than the program
     # ROM; Daytona's does. Read it from beside the program image if it is
@@ -1136,10 +1144,16 @@ def main():
     lifter = I960Lifter(data)
     total_lines = 0
 
-    # Determine function boundaries
+    # Determine function boundaries. A function ends where the next one
+    # begins - or, for the last one in a bank, where that bank's code ends:
+    # without that the hole between the banks is lifted as two megabytes of
+    # dead zeros, which is 500,000 lines of C nothing ever runs.
     func_bounds = {}
     for i, addr in enumerate(func_addrs):
         end = func_addrs[i + 1] if i + 1 < len(func_addrs) else prog_end
+        for stop in extent_stops:
+            if addr < stop < end:
+                end = stop
         func_bounds[addr] = end
 
     print('Lifting functions to C...')
