@@ -21,8 +21,29 @@
 
 #include "model2recomp/i960.h"
 #include "model2recomp/bus.h"
+#include "model2recomp/model2recomp.h"
 #include <math.h>
 #include <string.h>
+
+/* ---- Busy-waits ---- */
+
+/*
+ * A guest busy-wait that never touches the bus spins inside one lifted C
+ * function, so nothing else runs and the interrupt it is waiting for is never
+ * delivered. Daytona's initialisation waits for the VBlank handler to count
+ * three fields into work RAM and would hang there forever.
+ *
+ * The lifter emits this on tight backward branches. model2recomp_field_sync()
+ * is wall-clock rate-limited already, so the only real cost is the counter -
+ * which is per translation unit and deliberately unsynchronised; it decides
+ * how often to ask, not what the answer is.
+ */
+static inline void i960_spin_poll(void)
+{
+    static unsigned s_spins;
+    if ((++s_spins & 0x3FF) == 0)
+        (void)model2recomp_field_sync();
+}
 
 /* ---- Arithmetic ---- */
 

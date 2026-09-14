@@ -266,11 +266,63 @@ class I960Lifter:
         return [_GOTO_RE.sub(make_repl(ln.rstrip().endswith('/* bal */')), ln)
                 for ln in lines]
 
+    # A backward branch this short is a spin loop, not a structured loop.
+    SPIN_WINDOW = 0x40
+
+    # MEM opcodes that store. A loop containing one is doing work, not waiting.
+    _MEM_STORE_OPS = frozenset({0x82, 0x8A, 0x92, 0x9A, 0xA2, 0xB2, 0xC2, 0xCA})
+
+    def _is_spin_branch(self, word, addr):
+        """True for a tight backward branch over a body that only reads.
+
+        Nothing outside a lifted function runs while it loops, so a guest that
+        waits on a flag some interrupt handler sets waits forever. Daytona's
+        initialisation waits for the VBlank handler to count three fields into
+        work RAM, and Virtua Cop only got away without this because it waits on
+        the field-sync register instead, which is a bus read the runtime sees.
+
+        A busy-wait reads and compares and does nothing else; a copy loop
+        stores, and a worker loop calls. Requiring the body to be read-only
+        keeps the poll off the hot paths - it is 25 sites in Virtua Cop rather
+        than 544 - and out of the boot copy loops, which run before the game is
+        ready to take an interrupt at all.
+
+        ponytail: a distance threshold, not a real loop analysis. A busy-wait
+        spread over more than 0x40 bytes would be missed; none is, in either
+        game.
+        """
+        opcode = (word >> 24) & 0xFF
+        if opcode in (0x09, 0x0B):          # call and bal are not loops
+            return False
+        if 0x08 <= opcode <= 0x1F:
+            disp = sign_extend(word & 0x00FFFFFC, 24)
+        elif 0x20 <= opcode <= 0x3F:
+            disp = sign_extend(word & 0x1FFC, 13)
+        else:
+            return False
+        if not (-self.SPIN_WINDOW <= disp < 0):
+            return False
+
+        scan = addr + disp
+        while scan < addr:
+            w = self.read32(scan)
+            op = (w >> 24) & 0xFF
+            if op in (0x09, 0x0B, 0x0A) or op in self._MEM_STORE_OPS:
+                return False
+            if op in (0x84, 0x85, 0x86):    # bx, balx, callx
+                return False
+            scan += 8 if (0x80 <= op <= 0xCF and (w & 0x1000)
+                          and ((w >> 10) & 0xF) in (0x5, 0xC, 0xD, 0xE, 0xF)) else 4
+        return True
+
     def _lift_instruction(self, word, addr):
         """Lift a single instruction to C code. Returns (list of C lines, inst_size)."""
         opcode = (word >> 24) & 0xFF
         lines = []
         ret_size = 4  # default, updated for 8-byte MEM instructions
+
+        if self._is_spin_branch(word, addr):
+            lines.append('i960_spin_poll();')
 
         # ---- CTRL format ----
         if 0x08 <= opcode <= 0x1F:

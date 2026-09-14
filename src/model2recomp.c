@@ -366,9 +366,15 @@ void model2recomp_set_frame_limit(long fields)
 uint32_t model2recomp_field_sync(void)
 {
     static uint32_t s_next_field_ms = 0;
+    /* Dispatching the field's interrupts runs guest code, and guest code can
+     * ask for the field again - a busy-wait inside a handler does. Ending the
+     * frame a second time from inside the first presents a half-built one and
+     * loses the list the game was still writing. */
+    static bool s_in_field = false;
 
     uint32_t now = SDL_GetTicks();
-    if ((int32_t)(now - s_next_field_ms) >= 0) {
+    if (!s_in_field && (int32_t)(now - s_next_field_ms) >= 0) {
+        s_in_field = true;
         s_next_field_ms = now + (FRAME_US / 1000);
 
         /* The geometry engine walks the stream the game submitted last field,
@@ -551,6 +557,7 @@ uint32_t model2recomp_field_sync(void)
         }
 
         videoctl_write(videoctl_read() ^ VIDEOCTL_FIELD);
+        s_in_field = false;
     }
 
     return videoctl_read();
