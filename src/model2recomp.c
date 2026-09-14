@@ -393,6 +393,12 @@ uint32_t model2recomp_field_sync(void)
                                 g_cull_zclip, g_cull_maxz;
                 extern unsigned g_strip_underrun, g_strip_linkend,
                                 g_strip_count;
+                extern unsigned g_geo_cmd_hist[32];
+                fprintf(stderr, "[geocmd]");
+                for (int c = 0; c < 32; c++)
+                    if (g_geo_cmd_hist[c])
+                        fprintf(stderr, " %02X=%u", c, g_geo_cmd_hist[c]);
+                fprintf(stderr, "\n");
                 fprintf(stderr, "[cull] backface=%u linktype=%u zclip=%u "
                         "maxz=%u | strips: polys=%u linkend=%u underrun=%u\n",
                         g_cull_backface, g_cull_linktype,

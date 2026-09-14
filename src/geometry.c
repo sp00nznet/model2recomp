@@ -142,6 +142,9 @@ static bool            s_render_done;
 static int g_probe_x = -1, g_probe_y = -1;
 static int g_matrix_dump;
 
+/* MODEL2_POLYCOUNT prints how many of each display-list command ran. */
+unsigned g_geo_cmd_hist[32];
+
 /* The 3D output goes to its own bitmap, not to framebuffer VRAM. The game
  * writes that VRAM itself in render-test mode, and MAME likewise renders to a
  * separate destmap and composites. Non-zero pixels are the drawn ones, which
@@ -909,6 +912,8 @@ static void geo_test(uint32_t opcode, stream_t *in)
  */
 static void geo_process_command(uint32_t opcode, stream_t *in, bool *end_code)
 {
+    g_geo_cmd_hist[(opcode >> 23) & 0x1F]++;
+
     switch ((opcode >> 23) & 0x1F) {
     case 0x00: model2_3d_push(opcode >> 23);            break;  /* nop */
     case 0x01:
