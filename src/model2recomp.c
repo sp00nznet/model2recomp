@@ -437,6 +437,43 @@ uint32_t model2recomp_field_sync(void)
                 char path[1024];
                 snprintf(path, sizeof(path), "%s.%05ld.ppm", shot, s_fields_done);
                 model2recomp_save_ppm(path);
+
+                /*
+                 * The display list beside each frame. Our field counter does
+                 * not track the game's frame number - the field boundary sits
+                 * in the guest's busy-wait, which it polls a varying number of
+                 * times - so a frame here cannot be lined up with MAME's by
+                 * number. Dumping the buffer RAM with the picture lets the two
+                 * be matched on content instead.
+                 */
+                snprintf(path, sizeof(path), "%s.%05ld.lst", shot, s_fields_done);
+                FILE *bf = fopen(path, "wb");
+                if (bf) {
+                    /*
+                     * The read address followed by the list it points at.
+                     * Most of buffer RAM is untouched, so hashing the whole
+                     * region matches every frame against every other; the
+                     * active list is what identifies a moment in the game.
+                     */
+                    uint32_t start = geo_read_start_address() & 0x1FFFF;
+                    fwrite(&start, 4, 1, bf);
+                    for (uint32_t i = 0; i < 8192; i++) {
+                        uint32_t a = (start + i * 4) & 0x1FFFC;
+                        uint32_t w = bus_bufferram_read32(a);
+                        fwrite(&w, 4, 1, bf);
+                    }
+                    /*
+                     * Layer 0's name table too. On a screen with no 3D the
+                     * display list sits idle and matches every other idle
+                     * frame, so the list alone cannot say which moment this
+                     * is; the text on screen can.
+                     */
+                    for (uint32_t a = 0; a < 0x2000; a += 4) {
+                        uint32_t w = bus_read32(0x01000000 + a);
+                        fwrite(&w, 4, 1, bf);
+                    }
+                    fclose(bf);
+                }
             }
         }
 
@@ -472,6 +509,16 @@ uint32_t model2recomp_field_sync(void)
                 if (df) {
                     for (uint32_t a = 0x01000000; a < 0x01010000; a += 4) {
                         uint32_t w = bus_read32(a);
+                        fwrite(&w, 4, 1, df);
+                    }
+                    fclose(df);
+                }
+                /* The display list, for diffing against MAME's bufferram. */
+                snprintf(p, sizeof p, "%s.buf", dump);
+                df = fopen(p, "wb");
+                if (df) {
+                    for (uint32_t a = 0; a < 0x20000; a += 4) {
+                        uint32_t w = bus_bufferram_read32(a);
                         fwrite(&w, 4, 1, df);
                     }
                     fclose(df);
