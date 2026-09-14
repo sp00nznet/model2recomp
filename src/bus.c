@@ -30,6 +30,7 @@ static uint8_t *s_cpu_control = NULL;   /* 0x00E00000, 56 bytes */
 static uint8_t *s_tile_ram = NULL;      /* 0x01000000, 64KB */
 static uint8_t *s_char_ram = NULL;      /* 0x01080000, 512KB */
 static uint8_t *s_backup_sram = NULL;   /* 0x01D00000, 16KB */
+static uint8_t *s_comm_ram = NULL;      /* 0x01A00000, 16KB + 2 registers */
 static uint8_t *s_data_rom = NULL;      /* 0x02000000, up to 32MB */
 static uint32_t s_data_rom_size = 0;
 static uint8_t *s_extra_data = NULL;    /* 0x06000000, up to 16MB */
@@ -56,6 +57,7 @@ void bus_init(void)
     s_tile_ram    = (uint8_t *)calloc(1, 0x10000);   /* 64KB */
     s_char_ram    = (uint8_t *)calloc(1, 0x80000);   /* 512KB */
     s_backup_sram = (uint8_t *)calloc(1, 0x4000);    /* 16KB */
+    s_comm_ram    = (uint8_t *)calloc(1, 0x4008);    /* 16KB + registers */
     memset(s_dpram, 0xFF, sizeof(s_dpram));
 
     printf("[bus] Memory bus initialized\n");
@@ -71,6 +73,7 @@ void bus_shutdown(void)
     free(s_tile_ram);      s_tile_ram = NULL;
     free(s_char_ram);      s_char_ram = NULL;
     free(s_backup_sram);   s_backup_sram = NULL;
+    free(s_comm_ram);      s_comm_ram = NULL;
     free(s_data_rom);      s_data_rom = NULL;
     free(s_extra_data);    s_extra_data = NULL;
     free(s_texture_rom);   s_texture_rom = NULL;
@@ -122,6 +125,31 @@ static inline void mem_write32(uint8_t *base, uint32_t offset, uint32_t val)
 
 
 /* ---- Bus read ---- */
+
+/* ---- Link (comm) board ----
+ *
+ * 16KB of shared RAM at 0x01A00000 with two byte registers just past it -
+ * 0x01A04000 selects the node, 0x01A04002 is the handshake flag - and the
+ * whole thing mirrored at 0x01A10000. Daytona probes it at boot ("NETWORK
+ * CHECKING - THIS IS MASTER CONTROLLER") and one of its interrupt handlers
+ * polls the flag every field.
+ *
+ * There is no link board here and no second cabinet to talk to, so this is
+ * plain memory: the game writes, reads back what it wrote, finds no peer, and
+ * runs standalone. Linked play would need the board modelled properly.
+ */
+#define COMM_BASE   0x01A00000u
+#define COMM_MIRROR 0x01A10000u
+#define COMM_SIZE   0x4008u
+
+static bool comm_offset(uint32_t addr, uint32_t *out)
+{
+    uint32_t base = (addr >= COMM_MIRROR) ? COMM_MIRROR : COMM_BASE;
+    if (addr < base || addr - base >= COMM_SIZE)
+        return false;
+    *out = addr - base;
+    return true;
+}
 
 uint32_t bus_read32(uint32_t addr)
 {
@@ -245,6 +273,13 @@ uint32_t bus_read32(uint32_t addr)
     /* UART: 0x01C80000-0x01C80003 */
     if (addr >= 0x01C80000 && addr < 0x01C80004) {
         return (uint32_t)uart_read(addr - 0x01C80000);
+    }
+
+    /* Link board: 0x01A00000 and its mirror at 0x01A10000 */
+    {
+        uint32_t off;
+        if (comm_offset(addr, &off))
+            return mem_read32(s_comm_ram, off & ~3u);
     }
 
     /* Backup SRAM: 0x01D00000-0x01D03FFF */
@@ -572,6 +607,15 @@ void bus_write32(uint32_t addr, uint32_t val)
     if (addr >= 0x01D00000 && addr < 0x01D04000) {
         backup_sram_write((addr - 0x01D00000) >> 2, val);
         return;
+    }
+
+    /* Link board: 0x01A00000 and its mirror at 0x01A10000 */
+    {
+        uint32_t off;
+        if (comm_offset(addr, &off)) {
+            mem_write32(s_comm_ram, off & ~3u, val);
+            return;
+        }
     }
 
     /* Render mode: 0x10000000-0x101FFFFF */
