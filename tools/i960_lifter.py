@@ -668,6 +668,7 @@ class I960Lifter:
             # ---- 0x74: muli, remi, divi ----
             elif key == (0x74, 0x01):  lines.append(f'{dst} = (uint32_t)((int32_t){src1} * (int32_t){src2}); /* muli */')
             elif key == (0x74, 0x08):  lines.append(f'{dst} = ({src1} != 0) ? (uint32_t)((int32_t){src2} % (int32_t){src1}) : 0; /* remi */')
+            elif key == (0x74, 0x09):  lines.append(f'{dst} = op_modi({src1}, {src2}); /* modi */')
             elif key == (0x74, 0x0B):  lines.append(f'{dst} = ({src1} != 0) ? (uint32_t)((int32_t){src2} / (int32_t){src1}) : 0; /* divi */')
 
             # ---- 0x78B-0x78F / 0x79B-0x79F: real arithmetic ----
@@ -761,12 +762,20 @@ class I960Lifter:
             elif opcode == 0x82:  # stob
                 lines.append(f'op_stob((uint8_t){reg}, {ea}); /* stob */')
             elif opcode == 0x84:  # bx (branch indirect)
-                if ea == 'I960_G(14)' or addr in self._leaf_returns:
+                if ea == 'I960_G(14)':
                     # bx (g14) is how a bal-called leaf procedure returns, and
-                    # bx through a register still holding a saved copy of g14
-                    # is the same return written the long way round. bal is
-                    # lifted as a real call, so plain return is correct.
-                    lines.append(f'return; /* bx {comment_safe(ea)} - leaf return */')
+                    # bal is lifted as a real call, so plain return is correct.
+                    #
+                    # bx through a *copy* of g14 is not the same thing, however
+                    # much it looks like it. 0x1D950 sets g14 to an address of
+                    # its own and falls into code that a second caller reaches
+                    # with bal, and the same bx serves both: for one it is a
+                    # jump to a ret that pops the frame the call pushed, for
+                    # the other it is the return itself. Reading it as a return
+                    # in both cases leaked a frame per field. Dispatch instead
+                    # and let the address decide - a missed bx must not pop,
+                    # which is what the branch below already does.
+                    lines.append(f'return; /* bx (g14) - leaf return */')
                 else:
                     lines.append(f'/* bx {comment_safe(ea)} - indirect branch */')
                     lines.append(f'func_table_call({ea});')
@@ -978,7 +987,13 @@ def discover_functions(data, max_size, data_rom=None):
         if after_ret and not is_padding:
             post_ret.add(offset)
             after_ret = False
-        if op == 0x0A:
+        # ret and bx are both unconditional, so whatever follows either of them
+        # is reachable only by some other route - which makes it an entry point
+        # unless something branches to it. The routine at 0x1D950 ends
+        # "bx (g0)" where g0 holds the address of the ret immediately after;
+        # without this that ret is never lifted, the jump to it misses, and the
+        # frame it was meant to pop is lost.
+        if op == 0x0A or op == 0x84:
             after_ret = True
         offset += size
 

@@ -25,6 +25,19 @@
 #include <math.h>
 #include <string.h>
 
+/* MODI: floored modulo. Unlike remi, the result takes the sign of the
+ * divisor, so -7 modi 3 is 2 where -7 remi 3 is -1. Daytona indexes the
+ * link ring's node slots with it. Semantics from MAME's i960 core. */
+static inline uint32_t op_modi(uint32_t src1, uint32_t src2)
+{
+    int32_t a = (int32_t)src1, b = (int32_t)src2;
+    if (a == 0) return 0;
+    int32_t dst = b - ((b / a) * a);
+    if (((int64_t)b * (int64_t)a) < 0 && dst != 0)
+        dst += a;
+    return (uint32_t)dst;
+}
+
 /* ---- Busy-waits ---- */
 
 /*
