@@ -48,7 +48,8 @@ bool platform_init(const char *title, int width, int height, int scale)
     }
 
     s_renderer = SDL_CreateRenderer(s_window, -1,
-        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        SDL_RENDERER_ACCELERATED
+        | (platform_fast_mode() ? 0u : (uint32_t)SDL_RENDERER_PRESENTVSYNC));
     if (!s_renderer) {
         fprintf(stderr, "[platform] Renderer creation failed: %s\n", SDL_GetError());
         return false;
@@ -163,8 +164,27 @@ void platform_queue_audio(const int16_t *samples, int num_samples)
     }
 }
 
+/* MODEL2_FAST=1 runs the board as fast as the host can, for automated tests:
+ * no vsync, no frame delay, and no wall-clock gate on the field boundary. A
+ * run that takes four minutes of real time to reach attract mode takes a few
+ * seconds, which is the difference between being able to bisect a boot and
+ * not. Timing-dependent behaviour is not preserved - the game's own counters
+ * still run in fields, but anything the host clock feeds is compressed. */
+bool platform_fast_mode(void)
+{
+    static int fast = -1;
+    if (fast < 0) {
+        const char *e = getenv("MODEL2_FAST");
+        fast = (e && atoi(e)) ? 1 : 0;
+    }
+    return fast != 0;
+}
+
 void platform_frame_sync(void)
 {
+    if (platform_fast_mode())
+        return;
+
     uint64_t now = SDL_GetPerformanceCounter();
     double elapsed = (double)(now - s_frame_start) / SDL_GetPerformanceFrequency() * 1000.0;
 

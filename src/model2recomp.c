@@ -373,7 +373,7 @@ uint32_t model2recomp_field_sync(void)
     static bool s_in_field = false;
 
     uint32_t now = SDL_GetTicks();
-    if (!s_in_field && (int32_t)(now - s_next_field_ms) >= 0) {
+    if (!s_in_field && (platform_fast_mode() || (int32_t)(now - s_next_field_ms) >= 0)) {
         s_in_field = true;
         s_next_field_ms = now + (FRAME_US / 1000);
 

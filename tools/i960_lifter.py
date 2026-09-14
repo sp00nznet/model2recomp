@@ -959,11 +959,16 @@ def discover_functions(data, max_size, data_rom=None):
                 branch_edges.append((offset, target))
 
         # "ld <32-bit displacement>[reg*4], dst" primes a possible switch;
-        # a "bx (dst)" right after it confirms one.
+        # a "bx (dst)" or "callx (dst)" right after it confirms one. Both
+        # forms occur: a switch jumps, and a table of state handlers calls.
+        # Daytona dispatches its whole game-state machine through a callx
+        # table of thirty entries at 0x1994, none of which anything else in
+        # the program names - so without this the game reaches its first state
+        # and dispatches into nothing.
         if op == 0x90 and size == 8 and (word & 0x1000) and ((word >> 10) & 0xF) >= 0xC:
             pending_table = ((word >> 19) & 0x1F,
                              struct.unpack_from('<I', data, offset + 4)[0])
-        elif op == 0x84 and pending_table and ((word >> 14) & 0x1F) == pending_table[0]:
+        elif op in (0x84, 0x86) and pending_table                 and ((word >> 14) & 0x1F) == pending_table[0]:
             jump_targets.update(harvest_jump_table(pending_table[1]))
             pending_table = None
         elif op != 0x90:
@@ -1019,12 +1024,21 @@ def discover_functions(data, max_size, data_rom=None):
         i = bisect.bisect_right(valid, addr) - 1
         return valid[i] if i >= 0 else None
 
-    # ponytail: one pass. Restoring an entry shifts the boundaries around it,
-    # so a second pass could in principle restore more; nothing in either game
-    # needs it, and a fixed point here is a loop over the whole program.
-    restored = {t for src, t in branch_edges if owner(src) != owner(t)}
-    if restored:
-        valid = sift(candidates | restored)
+    # Restoring an entry moves the boundary between the functions around it,
+    # which can make another edge cross one that did not before - so iterate
+    # until nothing new appears. It settles in two or three passes; the cap is
+    # there so a pathological program cannot spin.
+    #
+    # The invariant this keeps is the one that matters: every address the
+    # lifter will emit a dispatch for is an address the registration table
+    # holds. A dispatch that misses unwinds to the caller and the frame the
+    # function allocated is never given back.
+    for _ in range(8):
+        restored = {t for src, t in branch_edges if owner(src) != owner(t)}
+        if restored <= candidates:
+            break
+        candidates |= restored
+        valid = sift(candidates)
     return valid
 
 

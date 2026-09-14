@@ -32,6 +32,10 @@ void platform_queue_audio(const int16_t *samples, int num_samples);
 /* Frame sync (~57.5 Hz for Model 2, ~60 Hz NTSC) */
 void platform_frame_sync(void);
 
+/* True when MODEL2_FAST=1: presentation and the field boundary stop waiting
+ * for the wall clock, so an automated run finishes in seconds. */
+bool platform_fast_mode(void);
+
 /* Get mouse position and button state (for lightgun) */
 void platform_get_mouse(int *x, int *y, bool *left_button, bool *right_button,
                         bool *middle_button);

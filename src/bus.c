@@ -129,22 +129,26 @@ static inline void mem_write32(uint8_t *base, uint32_t offset, uint32_t val)
  * 0x01A04000 latches the node enable, 0x01A04002 the handshake flag - and the
  * whole thing mirrored at 0x01A10000.
  *
- * The board is fitted; there is no second cabinet on the other side of it.
- * That is the state MAME models and the one the game is built to survive:
- * enabling the board zeroes the shared RAM and starts a four-second timer,
- * and when it expires with no peer the board reports the link dead by writing
- * 0xFF into shared bytes 0, 2 and 3. The game reads byte 0, sees 0xFF, and
- * concludes there is no link board to talk to.
+ * The board is fitted and this cabinet is on its own, which is not the same as
+ * the board being absent: one cabinet is a ring of one node.
  *
- * Modelling this as plain memory instead leaves byte 3 at zero, and the
- * game's probe loop only counts down while it is non-zero - so it waited on
- * "NETWORK CHECKING" forever. Modelling the whole region as an empty socket,
- * all ones, fails the other way: the enable register reads its bit 0 back set,
- * which the game treats as a board fault and answers with a soft reset, and
- * since the flag recording that lives in work RAM the next boot clears, it
- * resets again forever.
+ * Enabling the board zeroes the shared RAM, publishes the frame geometry, and
+ * opens a four-second discovery window. Throughout, the board's own processor
+ * services every vertical interrupt and flips the handshake bit the game
+ * watches in bit 7 of the flag register - the game will not advance its own
+ * countdown until it sees that bit alternate. When the window closes the board
+ * reports the ring it found. With nobody else on the cable that is itself:
+ * link alive, node 1 of 1.
  *
- * Behaviour follows MAME's sega/m2comm.cpp; see NOTICE.
+ * The game insists on exactly that. After its countdown it reads shared byte 0
+ * and demands 0x01, then range-checks the node id and node count into 1..8;
+ * anything else prints CANCELLED and soft-resets the machine.
+ *
+ * MAME reaches the same state, but only with a socket open to another
+ * instance, because it models the ring as the cable rather than as the board -
+ * with no socket it leaves the link unestablished and the handshake bit still.
+ * Everything here except closing that ring on ourselves follows its
+ * sega/m2comm.cpp; see NOTICE.
  */
 #define COMM_BASE     0x01A00000u
 #define COMM_MIRROR   0x01A10000u
@@ -154,10 +158,15 @@ static inline void mem_write32(uint8_t *base, uint32_t offset, uint32_t val)
 #define COMM_FG       0x4002u          /* handshake flag latch */
 #define COMM_LINK_MS  0xE8u            /* MAME's 58 fps * 4 seconds */
 
+#define COMM_FRAME_START  0x2000u      /* where the transmit window begins */
+#define COMM_FRAME_SIZE   0x0E00u      /* bytes of game state per node */
+#define COMM_FRAME_OFFSET 0x01C0u      /* where this node's slot starts */
+
 static uint8_t s_comm_shared[COMM_SHARED];
 static uint8_t s_comm_cn;
 static uint8_t s_comm_fg;
-static uint16_t s_comm_timer;          /* fields left before the link is declared dead */
+static uint8_t s_comm_zfg;             /* the board's half of the handshake */
+static uint16_t s_comm_timer;          /* fields left in the discovery window */
 
 static bool comm_offset(uint32_t addr, uint32_t *out)
 {
@@ -174,7 +183,7 @@ static uint8_t comm_read8(uint32_t off)
      * and the flag register carries the peer's toggle in bit 7 - inverted, and
      * there is no peer, so it stays set. */
     if (off == COMM_CN) return (uint8_t)(s_comm_cn | 0xFE);
-    if (off == COMM_FG) return (uint8_t)(s_comm_fg | 0x80 | 0x7E);
+    if (off == COMM_FG) return (uint8_t)(s_comm_fg | (s_comm_zfg ? 0x00 : 0x80) | 0x7E);
     if (off < COMM_SHARED) return s_comm_shared[off];
     return 0xFF;
 }
@@ -186,9 +195,17 @@ static void comm_write8(uint32_t off, uint8_t val)
         if (s_comm_cn) {
             memset(s_comm_shared, 0, sizeof(s_comm_shared));
             s_comm_shared[0x01] = 0x02;
+            s_comm_shared[0x00] = 0x00;   /* link not established yet */
+            s_comm_shared[0x02] = 0xFF;
+            s_comm_shared[0x03] = 0xFF;
+            s_comm_shared[0x12] = (uint8_t)(COMM_FRAME_SIZE & 0xFF);
+            s_comm_shared[0x13] = (uint8_t)(COMM_FRAME_SIZE >> 8);
+            s_comm_shared[0x14] = (uint8_t)(COMM_FRAME_OFFSET & 0xFF);
+            s_comm_shared[0x15] = (uint8_t)(COMM_FRAME_OFFSET >> 8);
             s_comm_timer = COMM_LINK_MS;
         } else {
             s_comm_fg = 0;
+            s_comm_zfg = 0;
             s_comm_timer = 0;
         }
         return;
@@ -197,17 +214,52 @@ static void comm_write8(uint32_t off, uint8_t val)
     if (off < COMM_SHARED) s_comm_shared[off] = val;
 }
 
-/* Called once per field. Nothing ever answers, so the only thing that happens
- * is the timer running out and the board saying so. */
+/* Byte and halfword access has to reach these registers directly. The generic
+ * narrow-write path reads the surrounding word, patches a byte and writes the
+ * word back, which is right for memory and wrong for a register with side
+ * effects: a byte store to the flag register at +2 was rewriting the enable
+ * register at +0 with its own read-back value, and enabling the board a second
+ * time zeroes the shared RAM and restarts the discovery timer. The board never
+ * finished discovering because the game's own writes kept resetting it.
+ */
+/* Called once per field, from the same place the vertical interrupt is
+ * raised - which is when the board's processor would see it. */
 void bus_comm_tick(void)
 {
-    if (!s_comm_cn || s_comm_timer == 0)
+    if (!s_comm_cn)
         return;
-    if (--s_comm_timer == 0) {
-        s_comm_shared[0x00] = 0xFF;    /* link failed */
-        s_comm_shared[0x02] = 0xFF;
-        s_comm_shared[0x03] = 0xFF;
+
+    /* The board is alive whether or not anyone answers, and the game watches
+     * this bit alternate to decide the board is alive. */
+    s_comm_zfg ^= 1;
+
+    if (s_comm_timer && --s_comm_timer == 0) {
+        s_comm_shared[0x00] = 0x01;    /* link established */
+        s_comm_shared[0x02] = 0x01;    /* this node's id */
+        s_comm_shared[0x03] = 0x01;    /* nodes in the ring: just us */
     }
+    if (s_comm_shared[0x00] != 0x01)
+        return;
+
+    /*
+     * Close the ring. Every node's frame travels all the way round and comes
+     * back to the node that sent it - that is what makes it a ring rather than
+     * a broadcast, and the game relies on it: before it will start, it waits
+     * until it has received a frame from every node, its own included, and
+     * counts them against the node count the board reported.
+     *
+     * With one cabinet the loop is short. The board takes what the game put in
+     * the transmit window and delivers it to the receive window the game is
+     * pointing at, which is where a second cabinet's frame would have landed.
+     */
+    uint32_t frame_size = (uint32_t)s_comm_shared[0x13] << 8 | s_comm_shared[0x12];
+    uint32_t frame_off  = COMM_FRAME_START
+                        | ((uint32_t)s_comm_shared[0x15] << 8 | s_comm_shared[0x14]);
+    if (frame_size == 0 || frame_off < COMM_FRAME_START)
+        return;
+    if (frame_off + frame_size > COMM_SHARED)
+        frame_size = COMM_SHARED - frame_off;
+    memmove(s_comm_shared + frame_off, s_comm_shared + COMM_FRAME_START, frame_size);
 }
 
 uint32_t bus_read32(uint32_t addr)
@@ -447,6 +499,12 @@ uint8_t bus_read8(uint32_t addr)
 
     if (addr >= 0x00200000 && addr < 0x00220000)
         return s_program_ram[addr - 0x00200000];
+
+    {
+        uint32_t off;
+        if (comm_offset(addr, &off))
+            return comm_read8(off);
+    }
 
     /* Fall through */
     uint32_t val32 = bus_read32(addr & ~3);
@@ -755,6 +813,15 @@ void bus_write16(uint32_t addr, uint16_t val)
         return;
     }
 
+    {
+        uint32_t off;
+        if (comm_offset(addr, &off)) {
+            comm_write8(off, (uint8_t)val);
+            comm_write8(off + 1, (uint8_t)(val >> 8));
+            return;
+        }
+    }
+
     /* For other regions, do read-modify-write through 32-bit */
     uint32_t aligned = addr & ~3;
     uint32_t cur = bus_read32(aligned);
@@ -775,6 +842,14 @@ void bus_write8(uint32_t addr, uint8_t val)
     if (addr >= 0x00200000 && addr < 0x00220000) {
         s_program_ram[addr - 0x00200000] = val;
         return;
+    }
+
+    {
+        uint32_t off;
+        if (comm_offset(addr, &off)) {
+            comm_write8(off, val);
+            return;
+        }
     }
 
     /* For other regions, do read-modify-write through 32-bit */
