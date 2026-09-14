@@ -88,8 +88,18 @@ class I960Lifter:
         offset = func_addr
         max_addr = end_addr if end_addr else min(func_addr + 0x10000, len(self.data))
 
-        # First pass: find branch targets within this function
+        # First pass: find branch targets within this function, and the
+        # returns hiding behind an indirect branch.
+        #
+        # A bal-called leaf that needs g14 for something else saves it first:
+        #   mov g14, g1 / mov 0, g14 / ... / bx (g1)
+        # That last instruction is a return, not a branch. Lifting it as a
+        # dispatch misses - the landing site is in the middle of the caller,
+        # which is not a function - and the frame is never given back. Track
+        # which register still holds the copy and read the bx accordingly.
         local_labels = set()
+        holds_g14 = set()
+        leaf_returns = set()
         scan_offset = func_addr
         while scan_offset < max_addr:
             word = self.read32(scan_offset)
@@ -114,6 +124,21 @@ class I960Lifter:
             if target is not None and func_addr <= target < max_addr:
                 local_labels.add(target)
 
+            # "mov g14, gN" saves the bal return address; any later write
+            # to gN throws the copy away.
+            if (opcode == 0x5C and ((word >> 7) & 0xF) == 0x0C
+                    and not ((word >> 11) & 1) and (word & 0x1F) == G14_REG):
+                holds_g14.add((word >> 19) & 0x1F)
+            elif 0x58 <= opcode <= 0x7F:
+                holds_g14.discard((word >> 19) & 0x1F)
+            elif opcode == 0x84:
+                # bx: MEMB (bit 12) mode 0x4 is the bare "(abase)" form.
+                if ((word & 0x1000) and ((word >> 10) & 0xF) == 0x4
+                        and ((word >> 14) & 0x1F) in holds_g14):
+                    leaf_returns.add(scan_offset)
+            elif opcode in MEM_DEST_OPS:
+                holds_g14.discard((word >> 19) & 0x1F)
+
             # Without explicit bounds, the function ends at the first ret.
             # With bounds, lift the whole range so multi-block functions (a
             # conditional branch that skips over an early ret) keep all their
@@ -123,6 +148,8 @@ class I960Lifter:
                 break
 
             scan_offset += inst_size
+
+        self._leaf_returns = leaf_returns
 
         # Second pass: generate C code
         while offset < max_addr:
@@ -675,10 +702,12 @@ class I960Lifter:
             elif opcode == 0x82:  # stob
                 lines.append(f'op_stob((uint8_t){reg}, {ea}); /* stob */')
             elif opcode == 0x84:  # bx (branch indirect)
-                if ea == 'I960_G(14)':
-                    # bx (g14) is how a bal-called leaf procedure returns.
-                    # bal is lifted as a real call, so plain return is correct.
-                    lines.append(f'return; /* bx (g14) - leaf return */')
+                if ea == 'I960_G(14)' or addr in self._leaf_returns:
+                    # bx (g14) is how a bal-called leaf procedure returns, and
+                    # bx through a register still holding a saved copy of g14
+                    # is the same return written the long way round. bal is
+                    # lifted as a real call, so plain return is correct.
+                    lines.append(f'return; /* bx {comment_safe(ea)} - leaf return */')
                 else:
                     lines.append(f'/* bx {comment_safe(ea)} - indirect branch */')
                     lines.append(f'func_table_call({ea});')
@@ -731,9 +760,19 @@ class I960Lifter:
 
 # The original Model 2 maps program ROM 0x20000-0x3FFFF a second time at
 # 0x00220000; 0x00200000-0x0021FFFF is RAM on that board. See bus.c.
+# g14 in the register file: globals start at 16, so g14 is r30.
+G14_REG = 30
+
+# MEM opcodes that write their dst register, and so lose a saved copy of g14.
+# Stores do not; the loads, lda and balx do.
+MEM_DEST_OPS = frozenset({0x80, 0x85, 0x88, 0x8C, 0x90, 0x98,
+                          0xA0, 0xB0, 0xC0, 0xC8})
+
 ROM_ALIAS_LO = 0x00020000
 ROM_ALIAS_HI = 0x00040000
 ROM_ALIAS_BIAS = 0x00200000
+ROM_ALIAS_WINDOW_LO = ROM_ALIAS_LO + ROM_ALIAS_BIAS
+ROM_ALIAS_WINDOW_HI = ROM_ALIAS_HI + ROM_ALIAS_BIAS
 
 
 def reinit_entries(data, max_size):
@@ -841,6 +880,11 @@ def discover_functions(data, max_size):
     after_ret = False
     while offset < max_size:
         text, size, is_call, is_branch, target = disasm_one(data, offset, offset)
+        # A call into the ROM's second window names code this image already
+        # holds, 0x200000 lower down. Daytona's runtime start is a list of
+        # thirty calls, five of which are written that way.
+        if target is not None and ROM_ALIAS_WINDOW_LO <= target < ROM_ALIAS_WINDOW_HI:
+            target -= ROM_ALIAS_BIAS
         word = struct.unpack_from('<I', data, offset)[0]
         op = (word >> 24) & 0xFF
         # call (0x09) and bal (0x0B) both name a procedure entry; bal is the
