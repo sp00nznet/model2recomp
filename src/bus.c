@@ -224,8 +224,12 @@ static void comm_write8(uint32_t off, uint8_t val)
  */
 /* Called once per field, from the same place the vertical interrupt is
  * raised - which is when the board's processor would see it. */
+static void bus_watchdog_field(void);
+
 void bus_comm_tick(void)
 {
+    bus_watchdog_field();
+
     if (!s_comm_cn)
         return;
 
@@ -262,9 +266,58 @@ void bus_comm_tick(void)
     memmove(s_comm_shared + frame_off, s_comm_shared + COMM_FRAME_START, frame_size);
 }
 
+/* MODEL2_WATCHDOG=N aborts after N million bus operations without a field
+ * boundary, naming the function the guest was last dispatched into.
+ *
+ * A guest loop that neither calls anything nor reads the field-sync register
+ * is invisible to every other diagnostic here: no dispatch for the trace or
+ * the ring to record, no field for the profile to be dumped at, and killing
+ * the process loses whatever was still buffered. Almost any such loop does
+ * touch memory, though, so this catches it. */
+static unsigned long s_bus_ops;
+
+static void bus_watchdog_field(void) { s_bus_ops = 0; }
+
+static void bus_watchdog_tick(void)
+{
+    static unsigned long limit = ~0UL;
+    if (limit == ~0UL) {
+        const char *e = getenv("MODEL2_WATCHDOG");
+        limit = e ? strtoul(e, NULL, 0) * 1000000UL : 0;
+    }
+    if (!limit || ++s_bus_ops < limit)
+        return;
+    extern uint32_t g_cur_func;
+    fprintf(stderr, "[watchdog] %lu bus ops with no field boundary; last function %08X fp=%08X sp=%08X\n",
+            s_bus_ops, g_cur_func, g_i960.r[31], g_i960.r[1]);
+    for (int i = 0; i < 16; i++)
+        fprintf(stderr, "  g%-2d %08X%s", i, g_i960.r[16 + i],
+                (i % 4) == 3 ? "\n" : "");
+    for (int i = 0; i < 16; i++)
+        fprintf(stderr, "  r%-2d %08X%s", i, g_i960.r[i],
+                (i % 4) == 3 ? "\n" : "");
+    extern void func_table_dump_ring(void);
+    func_table_dump_ring();
+    fflush(stderr);
+    exit(3);
+}
+
 uint32_t bus_read32(uint32_t addr)
 {
-    addr &= ~3; /* Align to 4 bytes */
+    bus_watchdog_tick();
+    /*
+     * The i960 does not fault on an unaligned word access - it splits it in
+     * microcode and pays for it in cycles - and the compiler leans on that.
+     * Daytona's tilemap tables start on a two-byte boundary, so "ld (g0)" on
+     * one straddles two words; masking the address off read the wrong word
+     * and turned a row count of 6 into 0x00060001, which is a blit that never
+     * finishes. Split it here the way the hardware does.
+     */
+    if (addr & 3)
+        return (uint32_t)bus_read8(addr)
+             | ((uint32_t)bus_read8(addr + 1) << 8)
+             | ((uint32_t)bus_read8(addr + 2) << 16)
+             | ((uint32_t)bus_read8(addr + 3) << 24);
 
     /* Program ROM: 0x00000000-0x001FFFFF */
     if (addr < 0x00200000) {
@@ -558,7 +611,12 @@ uint32_t bus_iac_take_reinit(uint32_t *out_prcb)
 
 void bus_write32(uint32_t addr, uint32_t val)
 {
-    addr &= ~3;
+    /* Unaligned, as above: split it rather than write the wrong word. */
+    if (addr & 3) {
+        for (int i = 0; i < 4; i++)
+            bus_write8(addr + i, (uint8_t)(val >> (i * 8)));
+        return;
+    }
 
     {
         static const char *watch_env; static uint32_t watch;
