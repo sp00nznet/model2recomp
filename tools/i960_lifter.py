@@ -1015,8 +1015,7 @@ def discover_functions(data, max_size, data_rom=None):
     # ponytail: one pass. Restoring an entry shifts the boundaries around it,
     # so a second pass could in principle restore more; nothing in either game
     # needs it, and a fixed point here is a loop over the whole program.
-    restored = {t for src, t in branch_edges
-                if t in demoted and owner(src) != owner(t)}
+    restored = {t for src, t in branch_edges if owner(src) != owner(t)}
     if restored:
         valid = sift(candidates | restored)
     return valid
