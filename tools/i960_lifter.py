@@ -729,6 +729,13 @@ class I960Lifter:
         return lines, ret_size
 
 
+# The original Model 2 maps program ROM 0x20000-0x3FFFF a second time at
+# 0x00220000; 0x00200000-0x0021FFFF is RAM on that board. See bus.c.
+ROM_ALIAS_LO = 0x00020000
+ROM_ALIAS_HI = 0x00040000
+ROM_ALIAS_BIAS = 0x00200000
+
+
 def reinit_entries(data, max_size):
     """Entry points named by a reinitialize IAC message in the ROM.
 
@@ -1033,6 +1040,16 @@ def main():
         f.write(f'void {prefix}_register_all(void)\n{{\n')
         for addr in all_func_addrs:
             f.write(f'    func_table_register(0x{addr:08X}, {prefix}_{addr:08X});\n')
+        # The original Model 2 shows program ROM 0x20000-0x3FFFF a second time
+        # at 0x00220000, because 0x00200000-0x0021FFFF is RAM on that board.
+        # A game whose program fills the whole 2MB region never notices; one
+        # whose program is 256KB, like Daytona, is linked with its second half
+        # at 0x227000 and calls itself there. Same code, two addresses, so
+        # register both names for it.
+        for addr in all_func_addrs:
+            if ROM_ALIAS_LO <= addr < ROM_ALIAS_HI:
+                f.write(f'    func_table_register(0x{addr + ROM_ALIAS_BIAS:08X}, '
+                        f'{prefix}_{addr:08X});\n')
         f.write('}\n')
     print(f'Wrote {reg_path} ({len(all_func_addrs)} registrations)')
 
