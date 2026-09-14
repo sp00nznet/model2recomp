@@ -161,6 +161,7 @@ static bool pixel_set(int x, int y)
     return map && map[(size_t)y * FB_STRIDE + x] != 0;
 }
 
+
 static void test_empty_list_draws_nothing(void)
 {
     geo_write(0x1008 / 4, 0);
@@ -173,6 +174,87 @@ static void test_empty_list_draws_nothing(void)
     CHECK(geo_polygon_count() == 0);
     CHECK(count_drawn_pixels() == 0);
     printf("  empty display list draws nothing: OK\n");
+}
+
+/*
+ * One quad via direct data, as a screen-aligned rectangle.
+ *
+ * The rasterizer assembles a quad's corners in a specific order:
+ * v0 is P1(n-1), v1 is P0(n-1), v2 is P0(n) and v3 is P1(n), which walks the
+ * outline rather than zig-zagging across it. So to draw the rectangle
+ * (x0,y0)-(x1,y1) the stream sends the top-right corner second, and the two
+ * bottom corners left-to-right.
+ */
+static void emit_quad_at(float x0, float y0, float x1, float y1, float z)
+{
+    cmd(0x02, 0);
+    arg(0x00800000);        /* texture point address */
+    arg(0x00800000);        /* texture header address */
+
+    /* P0(n-1) = top left, P1(n-1) = top right. */
+    arg(f2u(view_x_for(x0, z)));  arg(f2u(view_y_for(y0, z)));  arg(f2u(z));
+    arg(f2u(view_x_for(x1, z)));  arg(f2u(view_y_for(y0, z)));  arg(f2u(z));
+
+    /* attr: quad (bit 0), link type 1, z from min z, double sided. */
+    uint32_t attr = 0x1 | (1u << 8) | (1u << 10) | (1u << 17);
+    arg(attr);
+    arg(0x40u << 23);       /* luma 0x40, front face */
+    arg(0);                 /* distance */
+
+    /* P0(n) = bottom left, P1(n) = bottom right. */
+    arg(f2u(view_x_for(x0, z)));  arg(f2u(view_y_for(y1, z)));  arg(f2u(z));
+    arg(f2u(view_x_for(x1, z)));  arg(f2u(view_y_for(y1, z)));  arg(f2u(z));
+
+    arg(0);                 /* attribute with low bits clear: end of strip */
+    cmd(0x0F, 0);           /* end of the display list */
+}
+
+/*
+ * A quad must fill its whole rectangle, not half of it.
+ *
+ * The rasterizer draws a polygon as a fan from v0, so a quad becomes two
+ * triangles either side of the v0-v2 diagonal. If the corner order is wrong
+ * the two triangles do not tile the rectangle and one half is missing - which
+ * on screen looks exactly like a wall that is a triangle instead of a
+ * rectangle, so this checks all four quadrants and both sides of the diagonal.
+ */
+static void test_quad_fills_its_rectangle(void)
+{
+    const float X0 = 180.0f, Y0 = 140.0f, X1 = 380.0f, Y1 = 250.0f;
+
+    emit_setup();
+    emit_quad_at(X0, Y0, X1, Y1, 200.0f);
+
+    geo_parse();
+    CHECK(geo_polygon_count() > 0);
+    if (geo_polygon_count() == 0) {
+        printf("  quad: no polygon reached the list\n");
+        return;
+    }
+
+    geo_render_polygons();
+
+    /* Well inside each quadrant, clear of the edges and the diagonal. */
+    CHECK(pixel_set(220, 165));      /* top left */
+    CHECK(pixel_set(340, 165));      /* top right */
+    CHECK(pixel_set(220, 225));      /* bottom left */
+    CHECK(pixel_set(340, 225));      /* bottom right */
+
+    /* Outside on every side. */
+    CHECK(!pixel_set(150, 195));
+    CHECK(!pixel_set(410, 195));
+    CHECK(!pixel_set(280, 120));
+    CHECK(!pixel_set(280, 270));
+
+    /*
+     * A rectangle 200x110 covers 22000 pixels. Half of it - one triangle of
+     * the fan - would be about 11000, so anything near that means the quad
+     * lost a half.
+     */
+    int drawn = count_drawn_pixels();
+    CHECK(drawn > 19000);
+    printf("  quad fills its rectangle: %d pixels (whole rectangle is 22000)\n",
+           drawn);
 }
 
 static void test_triangle_reaches_the_screen(void)
@@ -245,6 +327,7 @@ int main(void)
     printf("Model 2 geometry engine:\n");
     test_empty_list_draws_nothing();
     test_triangle_reaches_the_screen();
+    test_quad_fills_its_rectangle();
     test_negative_z_is_culled();
     test_depth_sorting();
 
