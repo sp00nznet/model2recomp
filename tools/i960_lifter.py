@@ -18,6 +18,7 @@ Usage:
     python ext/model2recomp/tools/i960_lifter.py roms/program.bin src/recomp vcop
 """
 
+import bisect
 import glob
 import os
 import sys
@@ -818,6 +819,8 @@ def discover_functions(data, max_size):
             addr += 4
         return found
 
+    branch_edges = []      # (source address, target address) for plain branches
+
     pending_table = None   # (destination register, table address)
 
     offset = 0
@@ -844,6 +847,7 @@ def discover_functions(data, max_size):
         if target is not None and 0 < target < max_size:
             if op == 0x08 or 0x10 <= op <= 0x1F or 0x20 <= op <= 0x3F:
                 branch_targets.add(target)
+                branch_edges.append((offset, target))
 
         # "ld <32-bit displacement>[reg*4], dst" primes a possible switch;
         # a "bx (dst)" right after it confirms one.
@@ -874,19 +878,45 @@ def discover_functions(data, max_size):
     #
     # So a post-ret candidate that something branches to is a label. One that
     # something *calls* is still a function, whichever else it is.
-    post_ret -= branch_targets - calls
+    demoted = post_ret & (branch_targets - calls)
+    post_ret -= demoted
 
     candidates = (calls | post_ret | jump_targets |
                   interrupt_handlers(data, max_size) |
                   reinit_entries(data, max_size))
 
-    all_funcs = sorted(candidates)
-    valid = []
-    for addr in all_funcs:
-        if addr < max_size - 4:
-            word = struct.unpack_from('<I', data, addr)[0]
-            if word != 0 and word != 0xFFFFFFFF:
-                valid.append(addr)
+    def sift(cands):
+        """Drop candidates that point at padding rather than code."""
+        out = []
+        for addr in sorted(cands):
+            if addr < max_size - 4:
+                word = struct.unpack_from('<I', data, addr)[0]
+                if word != 0 and word != 0xFFFFFFFF:
+                    out.append(addr)
+        return out
+
+    valid = sift(candidates)
+
+    # ...but a branch that leaves the function it sits in is a tail call, not a
+    # jump to a label. The lifter emits one as a dispatch through the function
+    # table, so its target has to be registered or the transfer misses at
+    # runtime and the frame is never given back. Daytona's firmware entry
+    # tail-jumps to code after a ret in a function 1,700 bytes earlier, and
+    # that address was demoted to a label it could never reach.
+    #
+    # Work out which function each end of the branch is in, and put back the
+    # ones only a cross-function branch reaches.
+    def owner(addr):
+        i = bisect.bisect_right(valid, addr) - 1
+        return valid[i] if i >= 0 else None
+
+    # ponytail: one pass. Restoring an entry shifts the boundaries around it,
+    # so a second pass could in principle restore more; nothing in either game
+    # needs it, and a fixed point here is a loop over the whole program.
+    restored = {t for src, t in branch_edges
+                if t in demoted and owner(src) != owner(t)}
+    if restored:
+        valid = sift(candidates | restored)
     return valid
 
 
