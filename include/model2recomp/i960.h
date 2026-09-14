@@ -60,6 +60,9 @@ typedef struct I960Context {
 /* Global CPU context - all recompiled functions operate on this */
 extern I960Context g_i960;
 
+/* Return address of the bal in progress; see i960.c. */
+extern uint32_t g_bal_link;
+
 /* --- Register accessors --- */
 
 /* Local registers r0-r15 */

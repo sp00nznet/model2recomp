@@ -243,7 +243,9 @@ class I960Lifter:
                     # of those lands in the palette fade counter and corrupts the
                     # polygon palette. Restoring the invariant here covers both
                     # shapes of leaf.
-                    return f'{{ func_table_call(0x{tgt}); I960_G(14) = 0; }}'
+                    return (f'{{ uint32_t bl = g_bal_link; g_bal_link = I960_G(14);'
+                            f' func_table_call(0x{tgt}); g_bal_link = bl;'
+                            f' I960_G(14) = 0; }}')
                 # A branch that leaves the function it is in has nowhere to
                 # land when the landing site is not a registered function -
                 # which happens whenever a real function's blocks are not
@@ -343,7 +345,7 @@ class I960Lifter:
                 lines.append(f'i960_do_ret(); /* ret */')
                 lines.append(f'return;')
             elif opcode == 0x0B:  # bal (branch and link)
-                lines.append(f'I960_G(14) = 0x{addr+4:08X}; /* bal 0x{target:08X} */')
+                lines.append(f'I960_G(14) = g_bal_link = 0x{addr+4:08X}; /* bal 0x{target:08X} */')
                 lines.append(f'goto L_{target:08X}; /* bal */')
             elif opcode == 0x10:  # bno
                 lines.append(f'/* bno 0x{target:08X} - branch if unordered (NaN) */')
@@ -777,15 +779,28 @@ class I960Lifter:
                     # which is what the branch below already does.
                     lines.append(f'return; /* bx (g14) - leaf return */')
                 else:
+                    # A copy of the bal link is a return; anything else is a
+                    # jump to a computed address and has to be dispatched, so
+                    # that whatever pops the frame gets to run.
                     lines.append(f'/* bx {comment_safe(ea)} - indirect branch */')
+                    lines.append(f'if ({ea} == g_bal_link) return;')
                     lines.append(f'func_table_call({ea});')
                     lines.append(f'return;')
             elif opcode == 0x85:  # balx
-                lines.append(f'{reg} = 0x{addr + inst_size:08X}; /* balx */')
-                lines.append(f'func_table_call({ea});')
+                # The address is computed before the link register is written,
+                # and the two can be the same register.
+                lines.append(f'{{ uint32_t t = {ea}; {reg} = 0x{addr + inst_size:08X};'
+                             f' func_table_call(t); }} /* balx */')
             elif opcode == 0x86:  # callx (indirect call)
-                lines.append(f'i960_do_call({ea}, 0x{addr + inst_size:08X});')
-                lines.append(f'if (!func_table_call({ea})) i960_do_ret(); /* callx */')
+                # Compute the address before the frame is allocated. Allocating
+                # one clears r3-r15, so reading the target register afterwards
+                # dispatches to whatever it was cleared to - which is zero.
+                # Daytona's per-frame object walker calls every live object
+                # through "ld 0xC(g13), r5" then "callx (r5)", and every one of
+                # those calls was going to address 0.
+                lines.append(f'{{ uint32_t t = {ea};'
+                             f' i960_do_call(t, 0x{addr + inst_size:08X});'
+                             f' if (!func_table_call(t)) i960_do_ret(); }} /* callx */')
             elif opcode == 0x88:  # ldos
                 lines.append(f'{reg} = op_ldos({ea}); /* ldos */')
             elif opcode == 0x8A:  # stos
@@ -835,6 +850,9 @@ G14_REG = 30
 # Stores do not; the loads, lda and balx do.
 MEM_DEST_OPS = frozenset({0x80, 0x85, 0x88, 0x8C, 0x90, 0x98,
                           0xA0, 0xB0, 0xC0, 0xC8})
+
+# MEM opcodes that store their register to memory.
+STORE_OPS = frozenset({0x82, 0x8A, 0x92, 0x9A, 0xA2, 0xB2, 0xC2, 0xCA})
 
 
 def reinit_entries(data, max_size):
@@ -938,6 +956,8 @@ def discover_functions(data, max_size, data_rom=None):
         return found
 
     branch_edges = []      # (source address, target address) for plain branches
+    func_ptrs = set()      # addresses loaded as constants and stored as pointers
+    pending_ptr = None     # (register, value) from the lda before this one
 
     pending_table = None   # (destination register, table address)
 
@@ -966,6 +986,24 @@ def discover_functions(data, max_size, data_rom=None):
             if op == 0x08 or 0x10 <= op <= 0x1F or 0x20 <= op <= 0x3F:
                 branch_targets.add(target)
                 branch_edges.append((offset, target))
+
+        # An address loaded as a constant and then stored is a pointer, and a
+        # pointer to code is a function nothing calls by name. Daytona builds
+        # its per-frame object list that way: "lda 0x17DE0, r4" then "st r4"
+        # into the object's handler slot, and the only thing that ever names
+        # that function is the callx the walker makes through the slot.
+        #
+        # Requiring the store to come straight after the load is what keeps
+        # this honest. An address that is merely loaded is as likely to be
+        # data, and there are three times as many of those.
+        if op == 0x8C and size == 8 and (word & 0x1000) and ((word >> 10) & 0xF) == 0xC:
+            value = struct.unpack_from('<I', data, offset + 4)[0]
+            pending_ptr = ((word >> 19) & 0x1F, value)                 if not value & 3 and 0x400 <= value < max_size else None
+        elif pending_ptr and op in STORE_OPS                 and ((word >> 19) & 0x1F) == pending_ptr[0]:
+            func_ptrs.add(pending_ptr[1])
+            pending_ptr = None
+        else:
+            pending_ptr = None
 
         # "ld <32-bit displacement>[reg*4], dst" primes a possible switch;
         # a "bx (dst)" or "callx (dst)" right after it confirms one. Both
@@ -1010,7 +1048,7 @@ def discover_functions(data, max_size, data_rom=None):
     demoted = post_ret & (branch_targets - calls)
     post_ret -= demoted
 
-    candidates = (calls | post_ret | jump_targets |
+    candidates = (calls | post_ret | jump_targets | func_ptrs |
                   interrupt_handlers(data, max_size, data_rom) |
                   reinit_entries(data, max_size))
 

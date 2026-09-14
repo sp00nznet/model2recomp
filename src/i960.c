@@ -15,6 +15,20 @@
 /* Global CPU context */
 I960Context g_i960;
 /* MODEL2_LEAK reporting: how far the guest stack ever got. */
+/*
+ * The return address of the bal currently in progress, or 0.
+ *
+ * bal is a call that leaves its link in g14 rather than pushing a frame, and a
+ * leaf returns with "bx (g14)" or through a copy of it. But the same "bx (gN)"
+ * also appears where the game has loaded gN with an address of its own and is
+ * jumping to it - 0x1D950 in Daytona sets up a return address and falls into
+ * code a second caller reaches by bal, and both paths leave through one bx.
+ * Reading it as a return in both cases leaks the frame the call pushed;
+ * dispatching in both cases re-runs the caller's tail. Recording what bal
+ * linked with tells them apart.
+ */
+uint32_t g_bal_link = 0;
+
 uint32_t g_sp_high;
 
 void i960_reset(void)
