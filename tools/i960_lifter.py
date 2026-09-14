@@ -534,23 +534,30 @@ class I960Lifter:
             # ---- 0x5C: mov ----
             elif key == (0x5C, 0x0C):  lines.append(f'{dst} = {src1}; /* mov */')
 
-            # ---- 0x5D: movl (64-bit move, register pair) ----
-            elif key == (0x5D, 0x0C):
-                dst_pair = dst_reg & 0x1E
-                src1_pair = src1_reg & 0x1E
-                lines.append(f'g_i960.r[{dst_pair}] = g_i960.r[{src1_pair}]; g_i960.r[{dst_pair}+1] = g_i960.r[{src1_pair}+1]; /* movl */')
-
-            # ---- 0x5E: movt (96-bit move, register triple) ----
-            elif key == (0x5E, 0x0C):
-                dst_triple = dst_reg & 0x1C
-                src1_triple = src1_reg & 0x1C
-                lines.append(f'g_i960.r[{dst_triple}] = g_i960.r[{src1_triple}]; g_i960.r[{dst_triple}+1] = g_i960.r[{src1_triple}+1]; g_i960.r[{dst_triple}+2] = g_i960.r[{src1_triple}+2]; /* movt */')
-
-            # ---- 0x5F: movq (128-bit) / test ----
-            elif key == (0x5F, 0x0C):
-                dst_quad = dst_reg & 0x1C
-                src1_quad = src1_reg & 0x1C
-                lines.append(f'g_i960.r[{dst_quad}] = g_i960.r[{src1_quad}]; g_i960.r[{dst_quad}+1] = g_i960.r[{src1_quad}+1]; g_i960.r[{dst_quad}+2] = g_i960.r[{src1_quad}+2]; g_i960.r[{dst_quad}+3] = g_i960.r[{src1_quad}+3]; /* movq */')
+            # ---- 0x5D/0x5E/0x5F: movl, movt, movq ----
+            #
+            # With the literal bit set every destination register takes the
+            # literal, and the source field is the literal rather than a
+            # register number - "movq 0, r4" zeroes r4 through r7, which is how
+            # the compiler primes a stq before a block clear. Reading it as a
+            # register copied pfp, sp, rip and r3 into r4-r7 instead, and
+            # Daytona's work-RAM clear at 0x1780 filled the region with stack
+            # pointers. Register widths and destination masks follow MAME's
+            # i960 core, which does not mask the source.
+            elif key in ((0x5D, 0x0C), (0x5E, 0x0C), (0x5F, 0x0C)):
+                mnem, count, dst_mask = {
+                    0x5D: ('movl', 2, 0x1E),
+                    0x5E: ('movt', 3, 0x1C),
+                    0x5F: ('movq', 4, 0x1C),
+                }[opcode]
+                base = dst_reg & dst_mask
+                if m1:
+                    parts = [f'g_i960.r[{base + i}]' for i in range(count)]
+                    lines.append(' = '.join(parts) + f' = {src1_reg}u; /* {mnem} */')
+                else:
+                    lines.append(' '.join(
+                        f'g_i960.r[{base + i}] = g_i960.r[{src1_reg + i}];'
+                        for i in range(count)) + f' /* {mnem} */')
             elif key == (0x5F, 0x00):  lines.append(f'{dst} = i960_test_cc(0x07) ? 0 : 1; /* testno */')
             elif key == (0x5F, 0x01):  lines.append(f'{dst} = op_testg(); /* testg */')
             elif key == (0x5F, 0x02):  lines.append(f'{dst} = op_teste(); /* teste */')
