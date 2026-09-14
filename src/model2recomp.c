@@ -389,6 +389,15 @@ uint32_t model2recomp_field_sync(void)
             if (every > 0 && (s_fields_done % every) == 0)
             {
                 extern unsigned g_geo_seen, g_geo_culled, g_geo_clipped;
+                extern unsigned g_cull_backface, g_cull_linktype,
+                                g_cull_zclip, g_cull_maxz;
+                extern unsigned g_strip_underrun, g_strip_linkend,
+                                g_strip_count;
+                fprintf(stderr, "[cull] backface=%u linktype=%u zclip=%u "
+                        "maxz=%u | strips: polys=%u linkend=%u underrun=%u\n",
+                        g_cull_backface, g_cull_linktype,
+                        g_cull_zclip, g_cull_maxz,
+                        g_strip_count, g_strip_linkend, g_strip_underrun);
                 const uint32_t *dm = geo_get_destmap();
                 unsigned drawn = 0;
                 if (dm) for (int i = 0; i < 512 * 384; i++) if (dm[i]) drawn++;

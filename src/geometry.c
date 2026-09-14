@@ -259,21 +259,36 @@ static int32_t clip_polygon(const vertex_t *v, int32_t num_vertices,
     return outcount;
 }
 
+/* MODEL2_POLYCOUNT breaks the cull down by reason. */
+unsigned g_cull_backface, g_cull_linktype, g_cull_zclip, g_cull_maxz;
+
+/* How each polygon strip ended: ran out of stream, or the link type said so. */
+unsigned g_strip_underrun, g_strip_linkend, g_strip_count;
+
 static bool check_culling(uint32_t attr, float min_z, float max_z)
 {
     /* Backface, unless the polygon is marked double sided. */
-    if (((attr >> 17) & 1) == 0 && (s_raster->command_buffer[9] & 0x00800000))
-        return true;
+    if (((attr >> 17) & 1) == 0 && (s_raster->command_buffer[9] & 0x00800000)) {
+        g_cull_backface++;
+        if (!getenv("MODEL2_NOCULL"))
+            return true;
+    }
 
     /* Link type 0 terminates a strip rather than drawing. */
-    if (((attr >> 8) & 3) == 0)
+    if (((attr >> 8) & 3) == 0) {
+        g_cull_linktype++;
         return true;
+    }
 
-    if (s_raster->master_z_clip != 0xFF && (int32_t)(1.0f / min_z) > s_raster->master_z_clip)
+    if (s_raster->master_z_clip != 0xFF && (int32_t)(1.0f / min_z) > s_raster->master_z_clip) {
+        g_cull_zclip++;
         return true;
+    }
 
-    if (max_z < 0)
+    if (max_z < 0) {
+        g_cull_maxz++;
         return true;
+    }
 
     return false;
 }
@@ -361,8 +376,9 @@ static void model2_3d_process_polygon(uint32_t attr, int num_verts)
     raster->polygon_z = zvalue;
 
     g_geo_seen++;
-    if (check_culling(attr, min_z, max_z)) g_geo_culled++;
-    if (!check_culling(attr, min_z, max_z)) {
+    bool culled = check_culling(attr, min_z, max_z);
+    if (culled) g_geo_culled++;
+    if (!culled) {
         vertex_t verts_in[MAX_VERTS], verts_out[MAX_VERTS];
         int32_t clipped_verts = num_verts;
 
@@ -589,8 +605,10 @@ static void geo_parse_polygons(stream_t *in, uint32_t count,
     memset(&p2, 0, sizeof(p2));
     memset(&p3, 0, sizeof(p3));
 
-    if (!shas(in, 6))
+    if (!shas(in, 6)) {
+        g_strip_underrun++;
         return;
+    }
 
     /* First two points of the strip. */
     for (int n = 0; n < 2; n++) {
@@ -608,19 +626,26 @@ static void geo_parse_polygons(stream_t *in, uint32_t count,
     }
 
     for (uint32_t i = 0; i < count; i++) {
-        if (!shas(in, 1))
+        if (!shas(in, 1)) {
+            g_strip_underrun++;
             break;
+        }
 
         uint32_t attr = sread(in);
         model2_3d_push(attr & 0x0003FFFF);
 
-        if ((attr & 3) == 0)
+        if ((attr & 3) == 0) {
+            g_strip_linkend++;
             break;      /* end of the strip */
+        }
 
         /* Normal (or the gap where it would be) plus one point, then a second
          * point for a quad or a skipped one for a triangle: 9 words either way. */
-        if (!shas(in, 9))
+        if (!shas(in, 9)) {
+            g_strip_underrun++;
             break;
+        }
+        g_strip_count++;
 
         if (have_normals) {
             normal.x  = u2f(sread(in));
@@ -1091,6 +1116,7 @@ typedef struct {
     uint32_t        poly_luma;
 
     uint16_t        texheader[4];
+    uint8_t         nv;
     bool            textured;
     bool            translucent;
     uint8_t         checker;
@@ -1432,7 +1458,7 @@ static void fill_triangle(const vertex_t *a, const vertex_t *b, const vertex_t *
                         sh->poly_luma, t & 0xFF, luma,
                         sh->translucent, sh->checker,
                         sh->texwidth, sh->texheight, sh->texx, sh->texy,
-                        sh->texlod, shade(sh, luma));
+                        sh->texlod, sh->nv, shade(sh, luma));
             }
         }
     }
@@ -1448,6 +1474,7 @@ static void setup_shading(const polygon_t *poly, shading_t *sh)
     uint32_t renderer = (poly->texheader[0] >> 13) & 3;
 
     memcpy(sh->texheader, poly->texheader, sizeof(sh->texheader));
+    sh->nv = poly->num_vertices;
 
     uint32_t colorbase = (poly->texheader[3] >> 6) & 0x3FF;
     uint32_t colour = palram[(colorbase + 0x1000) & 0x1FFF] & 0x7FFF;
@@ -1563,6 +1590,29 @@ void geo_render_polygons(void)
                             poly->v[i].pz = 1.0f / (poly->v[i].pz + FLT_MIN);
                             poly->v[i].pu = poly->v[i].pu * poly->v[i].pz * (1.0f / 8.0f);
                             poly->v[i].pv = poly->v[i].pv * poly->v[i].pz * (1.0f / 8.0f);
+                        }
+                    }
+
+                    /* MODEL2_PROBE: dump any polygon whose screen bounding
+                     * box contains the probe pixel, projected. */
+                    if (g_probe_x >= 0) {
+                        float lx = poly->v[0].x, hx = lx;
+                        float ly = poly->v[0].y, hy = ly;
+                        for (int i = 1; i < poly->num_vertices; i++) {
+                            if (poly->v[i].x < lx) lx = poly->v[i].x;
+                            if (poly->v[i].x > hx) hx = poly->v[i].x;
+                            if (poly->v[i].y < ly) ly = poly->v[i].y;
+                            if (poly->v[i].y > hy) hy = poly->v[i].y;
+                        }
+                        if (g_probe_x >= lx && g_probe_x <= hx &&
+                            g_probe_y >= ly && g_probe_y <= hy) {
+                            fprintf(stderr, "[poly] nv=%u z=%u cb=%03X",
+                                    poly->num_vertices, poly->z,
+                                    (poly->texheader[3] >> 6) & 0x3FF);
+                            for (int i = 0; i < poly->num_vertices; i++)
+                                fprintf(stderr, "  v%d=(%.1f,%.1f)",
+                                        i, poly->v[i].x, poly->v[i].y);
+                            fprintf(stderr, "\n");
                         }
                     }
 
