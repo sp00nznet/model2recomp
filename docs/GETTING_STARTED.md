@@ -146,7 +146,7 @@ MAME's `cpu/i960/i960.cpp` is the opcode table. Extract from it rather than
 transcribing from the manual; the manual and the silicon disagree in places and
 MAME follows the silicon.
 
-[virtuacop's `tools/i960_lifter.py`](https://github.com/sp00nznet/virtuacop/blob/main/tools/i960_lifter.py)
+[`tools/i960_lifter.py`](../tools/i960_lifter.py)
 is a working implementation of all of the above.
 
 ## Step 5: Create your game project

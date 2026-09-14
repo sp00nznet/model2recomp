@@ -77,6 +77,10 @@ BSD-3-Clause — ported from MAME
                                   (I/O board 2 DPRAM command protocol)
                                 (c) Dirk Best
 
+    tools/i960_disasm.py        cpu/i960/i960.cpp
+                                  (opcode tables, operand mode bits)
+                                (c) Farfetch'd; R. Belmont
+
 
 Learned from, no code taken
 ---------------------------
@@ -85,10 +89,8 @@ Learned from, no code taken
   will most likely derive from MAME's sound/multipcm.cpp ((c) Miguel Angel
   Horna) and sound/scsp.cpp, and this file must be updated when it does.
 
-  The i960 opcode tables used by the lifter in downstream game projects were
-  read out of MAME's cpu/i960/i960.cpp ((c) Farfetch'd; R. Belmont). No MAME
-  source is redistributed here; `ref/` is a local scratch directory and is
-  git-ignored.
+  No MAME source is redistributed here; `ref/` is a local scratch directory
+  and is git-ignored.
 
 
 Everything else
