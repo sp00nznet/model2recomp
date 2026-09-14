@@ -845,7 +845,10 @@ def reinit_entries(data, max_size):
     return entries
 
 
-def interrupt_handlers(data, max_size):
+DATA_ROM_BASE = 0x02000000
+
+
+def interrupt_handlers(data, max_size, data_rom=None):
     """Entry points reachable only through the i960 interrupt table.
 
     An interrupt handler is never called or branched to by any instruction, so
@@ -857,16 +860,23 @@ def interrupt_handlers(data, max_size):
 
     Without this, Virtua Cop's VBlank handler at 0x720 was never lifted as a
     function - it sat as unreachable trailing code inside its predecessor - and
-    the game did no per-frame work at all.
+    the game did no per-frame work at all. Daytona keeps its table in the data
+    ROM instead, at 0x02802040, and copies it into work RAM at boot, so that
+    image has to be readable here too or two of its handlers go missing.
     """
     def rd(addr):
+        if DATA_ROM_BASE <= addr and data_rom is not None:
+            off = addr - DATA_ROM_BASE
+            if off + 4 <= len(data_rom):
+                return struct.unpack_from('<I', data_rom, off)[0]
+            return 0
         if addr < 0 or addr + 4 > len(data):
             return 0
         return struct.unpack_from('<I', data, addr)[0]
 
     prcb = rd(4)
     itab = rd(prcb + 0x14)
-    if not itab or itab >= max_size:
+    if not itab:
         return set()
 
     handlers = set()
@@ -877,7 +887,7 @@ def interrupt_handlers(data, max_size):
     return handlers
 
 
-def discover_functions(data, max_size):
+def discover_functions(data, max_size, data_rom=None):
     """Find all function entry points."""
     from i960_disasm import disasm_one
     calls = set()
@@ -974,7 +984,7 @@ def discover_functions(data, max_size):
     post_ret -= demoted
 
     candidates = (calls | post_ret | jump_targets |
-                  interrupt_handlers(data, max_size) |
+                  interrupt_handlers(data, max_size, data_rom) |
                   reinit_entries(data, max_size))
 
     def sift(cands):
@@ -1075,6 +1085,15 @@ def main():
 
     data, prog_end = split_bank_image(data, prog_end)
 
+    # The interrupt table can live in the data ROM rather than the program
+    # ROM; Daytona's does. Read it from beside the program image if it is
+    # there, and carry on without it if it is not.
+    data_rom = None
+    data_path = os.path.join(os.path.dirname(prog_path) or '.', 'data.bin')
+    if os.path.exists(data_path):
+        with open(data_path, 'rb') as f:
+            data_rom = f.read()
+
     # Get entry point
     ip = struct.unpack_from('<I', data, 12)[0]
     prcb = struct.unpack_from('<I', data, 4)[0]
@@ -1086,7 +1105,7 @@ def main():
 
     # Discover functions
     print('Discovering functions...')
-    func_addrs = discover_functions(data, prog_end)
+    func_addrs = discover_functions(data, prog_end, data_rom)
     # Add entry point
     if ip not in func_addrs:
         func_addrs.append(ip)
