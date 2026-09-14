@@ -728,6 +728,30 @@ class I960Lifter:
         return lines, ret_size
 
 
+def reinit_entries(data, max_size):
+    """Entry points named by a reinitialize IAC message in the ROM.
+
+    The boot stub hands control to the real firmware by sending itself an IAC
+    "reinitialize processor" message: a 16-byte quad whose first word is
+    0x93000000, third the new PRCB, fourth the new IP. No instruction branches
+    to that IP, so scanning the code cannot find it - Daytona's stub sends the
+    message and then branches to itself forever, waiting for it to take effect.
+
+    The quad is a fixed i960 structure, so finding it is a scan rather than a
+    guess. Virtua Cop has one of these too; its target was already reachable,
+    which is why this went unnoticed.
+    """
+    entries = set()
+    for addr in range(0, min(len(data), max_size) - 15, 4):
+        if struct.unpack_from('<I', data, addr)[0] != 0x93000000:
+            continue
+        target = struct.unpack_from('<I', data, addr + 12)[0]
+        if target & 3 or not (0 < target < max_size):
+            continue
+        entries.add(target)
+    return entries
+
+
 def interrupt_handlers(data, max_size):
     """Entry points reachable only through the i960 interrupt table.
 
@@ -853,7 +877,8 @@ def discover_functions(data, max_size):
     post_ret -= branch_targets - calls
 
     candidates = (calls | post_ret | jump_targets |
-                  interrupt_handlers(data, max_size))
+                  interrupt_handlers(data, max_size) |
+                  reinit_entries(data, max_size))
 
     all_funcs = sorted(candidates)
     valid = []
