@@ -427,6 +427,7 @@ uint32_t model2recomp_field_sync(void)
             }
         }
 
+        bus_comm_tick();
         model2recomp_trigger_vblank();
         model2recomp_dispatch_irq();
 

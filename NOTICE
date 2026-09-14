@@ -81,6 +81,12 @@ BSD-3-Clause — ported from MAME
                                   (opcode tables, operand mode bits)
                                 (c) Farfetch'd; R. Belmont
 
+    src/bus.c                   sega/m2comm.cpp
+                                  (link board: register read-back, the shared
+                                   RAM the board writes on enable, and what it
+                                   reports once the link times out)
+                                (c) Ariel Ramos; Angelo Salese
+
 
 Learned from, no code taken
 ---------------------------

@@ -126,32 +126,88 @@ static inline void mem_write32(uint8_t *base, uint32_t offset, uint32_t val)
 /* ---- Link (comm) board ----
  *
  * 16KB of shared RAM at 0x01A00000 with two byte registers just past it -
- * 0x01A04000 selects the node, 0x01A04002 is the handshake flag - and the
+ * 0x01A04000 latches the node enable, 0x01A04002 the handshake flag - and the
  * whole thing mirrored at 0x01A10000.
  *
- * The socket is empty: this is one cabinet, not a linked pair. An empty
- * socket has nothing driving the data lines, so every read floats high, and
- * that is how the game finds out. Daytona reads 0x01A10000 twice, ands the
- * two bytes together, and takes the no-board path when the result is 0xFF:
+ * The board is fitted; there is no second cabinet on the other side of it.
+ * That is the state MAME models and the one the game is built to survive:
+ * enabling the board zeroes the shared RAM and starts a four-second timer,
+ * and when it expires with no peer the board reports the link dead by writing
+ * 0xFF into shared bytes 0, 2 and 3. The game reads byte 0, sees 0xFF, and
+ * concludes there is no link board to talk to.
  *
- *     ldib 0x01A10000, r4
- *     ldib 0x01A10000, r5
- *     and  r5, r4, r4
- *     subo 1, 0, r3
- *     cmpibe r4, r3, <no link board>
+ * Modelling this as plain memory instead leaves byte 3 at zero, and the
+ * game's probe loop only counts down while it is non-zero - so it waited on
+ * "NETWORK CHECKING" forever. Modelling the whole region as an empty socket,
+ * all ones, fails the other way: the enable register reads its bit 0 back set,
+ * which the game treats as a board fault and answers with a soft reset, and
+ * since the flag recording that lives in work RAM the next boot clears, it
+ * resets again forever.
  *
- * Backing the region with zeroed RAM instead told it a board was fitted, and
- * it sat on "NETWORK CHECKING - THIS IS MASTER CONTROLLER" waiting for a peer
- * that does not exist. Linked play would need the board modelled properly.
+ * Behaviour follows MAME's sega/m2comm.cpp; see NOTICE.
  */
-#define COMM_BASE   0x01A00000u
-#define COMM_MIRROR 0x01A10000u
-#define COMM_SIZE   0x4008u
+#define COMM_BASE     0x01A00000u
+#define COMM_MIRROR   0x01A10000u
+#define COMM_SHARED   0x4000u          /* shared RAM size */
+#define COMM_SIZE     0x4008u          /* shared RAM plus the two registers */
+#define COMM_CN       0x4000u          /* node enable latch */
+#define COMM_FG       0x4002u          /* handshake flag latch */
+#define COMM_LINK_MS  0xE8u            /* MAME's 58 fps * 4 seconds */
 
-static bool comm_addr(uint32_t addr)
+static uint8_t s_comm_shared[COMM_SHARED];
+static uint8_t s_comm_cn;
+static uint8_t s_comm_fg;
+static uint16_t s_comm_timer;          /* fields left before the link is declared dead */
+
+static bool comm_offset(uint32_t addr, uint32_t *out)
 {
     uint32_t base = (addr >= COMM_MIRROR) ? COMM_MIRROR : COMM_BASE;
-    return addr >= base && addr - base < COMM_SIZE;
+    if (addr < base || addr - base >= COMM_SIZE)
+        return false;
+    *out = addr - base;
+    return true;
+}
+
+static uint8_t comm_read8(uint32_t off)
+{
+    /* The registers read back their latched bit 0 with the unused bits high,
+     * and the flag register carries the peer's toggle in bit 7 - inverted, and
+     * there is no peer, so it stays set. */
+    if (off == COMM_CN) return (uint8_t)(s_comm_cn | 0xFE);
+    if (off == COMM_FG) return (uint8_t)(s_comm_fg | 0x80 | 0x7E);
+    if (off < COMM_SHARED) return s_comm_shared[off];
+    return 0xFF;
+}
+
+static void comm_write8(uint32_t off, uint8_t val)
+{
+    if (off == COMM_CN) {
+        s_comm_cn = val & 0x01;
+        if (s_comm_cn) {
+            memset(s_comm_shared, 0, sizeof(s_comm_shared));
+            s_comm_shared[0x01] = 0x02;
+            s_comm_timer = COMM_LINK_MS;
+        } else {
+            s_comm_fg = 0;
+            s_comm_timer = 0;
+        }
+        return;
+    }
+    if (off == COMM_FG) { s_comm_fg = val & 0x01; return; }
+    if (off < COMM_SHARED) s_comm_shared[off] = val;
+}
+
+/* Called once per field. Nothing ever answers, so the only thing that happens
+ * is the timer running out and the board saying so. */
+void bus_comm_tick(void)
+{
+    if (!s_comm_cn || s_comm_timer == 0)
+        return;
+    if (--s_comm_timer == 0) {
+        s_comm_shared[0x00] = 0xFF;    /* link failed */
+        s_comm_shared[0x02] = 0xFF;
+        s_comm_shared[0x03] = 0xFF;
+    }
 }
 
 uint32_t bus_read32(uint32_t addr)
@@ -278,9 +334,17 @@ uint32_t bus_read32(uint32_t addr)
         return (uint32_t)uart_read(addr - 0x01C80000);
     }
 
-    /* Link board: 0x01A00000 and its mirror at 0x01A10000 - socket empty */
-    if (comm_addr(addr))
-        return 0xFFFFFFFFu;
+    /* Link board: 0x01A00000 and its mirror at 0x01A10000 */
+    {
+        uint32_t off;
+        if (comm_offset(addr, &off)) {
+            off &= ~3u;
+            return (uint32_t)comm_read8(off)
+                 | ((uint32_t)comm_read8(off + 1) << 8)
+                 | ((uint32_t)comm_read8(off + 2) << 16)
+                 | ((uint32_t)comm_read8(off + 3) << 24);
+        }
+    }
 
     /* Backup SRAM: 0x01D00000-0x01D03FFF */
     if (addr >= 0x01D00000 && addr < 0x01D04000) {
@@ -609,9 +673,16 @@ void bus_write32(uint32_t addr, uint32_t val)
         return;
     }
 
-    /* Link board: 0x01A00000 and its mirror at 0x01A10000 - socket empty */
-    if (comm_addr(addr))
-        return;
+    /* Link board: 0x01A00000 and its mirror at 0x01A10000 */
+    {
+        uint32_t off;
+        if (comm_offset(addr, &off)) {
+            off &= ~3u;
+            for (int i = 0; i < 4; i++)
+                comm_write8(off + i, (uint8_t)(val >> (i * 8)));
+            return;
+        }
+    }
 
     /* Render mode: 0x10000000-0x101FFFFF */
     if (addr >= 0x10000000 && addr < 0x10200000) {

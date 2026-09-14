@@ -58,6 +58,11 @@ uint32_t bus_iac_take_reinit(uint32_t *out_prcb);
  * that issues one must return rather than execute the next instruction. */
 bool bus_iac_reinit_pending(void);
 
+/* Advance the link board by one field. With no second cabinet on the other
+ * side, all this does is run out the four-second timer and let the board
+ * report the link dead, which is what lets the game carry on standalone. */
+void bus_comm_tick(void);
+
 /* i960 interrupt control register: one vector per external IRQ line, line 0 in
  * the low byte. Loaded by a synmov to 0xFF000004. */
 uint32_t bus_i960_icr(void);
