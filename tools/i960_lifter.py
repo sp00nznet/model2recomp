@@ -768,12 +768,6 @@ G14_REG = 30
 MEM_DEST_OPS = frozenset({0x80, 0x85, 0x88, 0x8C, 0x90, 0x98,
                           0xA0, 0xB0, 0xC0, 0xC8})
 
-ROM_ALIAS_LO = 0x00020000
-ROM_ALIAS_HI = 0x00040000
-ROM_ALIAS_BIAS = 0x00200000
-ROM_ALIAS_WINDOW_LO = ROM_ALIAS_LO + ROM_ALIAS_BIAS
-ROM_ALIAS_WINDOW_HI = ROM_ALIAS_HI + ROM_ALIAS_BIAS
-
 
 def reinit_entries(data, max_size):
     """Entry points named by a reinitialize IAC message in the ROM.
@@ -880,11 +874,6 @@ def discover_functions(data, max_size):
     after_ret = False
     while offset < max_size:
         text, size, is_call, is_branch, target = disasm_one(data, offset, offset)
-        # A call into the ROM's second window names code this image already
-        # holds, 0x200000 lower down. Daytona's runtime start is a list of
-        # thirty calls, five of which are written that way.
-        if target is not None and ROM_ALIAS_WINDOW_LO <= target < ROM_ALIAS_WINDOW_HI:
-            target -= ROM_ALIAS_BIAS
         word = struct.unpack_from('<I', data, offset)[0]
         op = (word >> 24) & 0xFF
         # call (0x09) and bal (0x0B) both name a procedure entry; bal is the
@@ -971,6 +960,41 @@ def discover_functions(data, max_size):
     return valid
 
 
+# The original Model 2 puts RAM at 0x00200000-0x0021FFFF and shows the second
+# 128KB of program ROM at 0x00220000 instead. A game whose program fills the
+# whole 2MB region never sees the seam; one that fits in two 128KB chips is
+# linked across it, with its second half assembled for 0x220000.
+BANK_SIZE = 0x00020000
+SECOND_BANK_BASE = 0x00220000
+
+
+def split_bank_image(data, prog_end):
+    """Lay a two-bank program out at the addresses it was linked for.
+
+    Daytona's program is 256KB: the first chip pair runs at 0x000000 and the
+    second at 0x220000. Lifting the second half at file offset 0x20000 puts
+    every IP-relative call 0x200000 low - they come out negative - and every
+    address the game names absolutely lands in the wrong function.
+
+    Rebuilding the image so file offset and guest address agree keeps the rest
+    of the lifter unaware that the seam exists. The hole between the banks is
+    zeros, which discovery already skips as padding.
+
+    A program larger than one bank pair is a full-region ROM and is linear; it
+    is returned unchanged.
+    """
+    if prog_end <= BANK_SIZE or prog_end > 2 * BANK_SIZE:
+        return data, prog_end
+
+    image = bytearray(SECOND_BANK_BASE + BANK_SIZE)
+    image[:BANK_SIZE] = data[:BANK_SIZE]
+    tail = data[BANK_SIZE:prog_end]
+    image[SECOND_BANK_BASE:SECOND_BANK_BASE + len(tail)] = tail
+    print(f'Two-bank program: 0x{BANK_SIZE:X} at 0x000000, '
+          f'0x{len(tail):X} at 0x{SECOND_BANK_BASE:06X}')
+    return bytes(image), SECOND_BANK_BASE + len(tail)
+
+
 def main():
     if len(sys.argv) < 4:
         print(f"Usage: {sys.argv[0]} <program.bin> <output_dir> <prefix>")
@@ -996,6 +1020,8 @@ def main():
     while prog_end > 0 and (data[prog_end - 1] in (0x00, 0xFF)):
         prog_end -= 1
     prog_end = (prog_end + 3) & ~3
+
+    data, prog_end = split_bank_image(data, prog_end)
 
     # Get entry point
     ip = struct.unpack_from('<I', data, 12)[0]
@@ -1084,16 +1110,6 @@ def main():
         f.write(f'void {prefix}_register_all(void)\n{{\n')
         for addr in all_func_addrs:
             f.write(f'    func_table_register(0x{addr:08X}, {prefix}_{addr:08X});\n')
-        # The original Model 2 shows program ROM 0x20000-0x3FFFF a second time
-        # at 0x00220000, because 0x00200000-0x0021FFFF is RAM on that board.
-        # A game whose program fills the whole 2MB region never notices; one
-        # whose program is 256KB, like Daytona, is linked with its second half
-        # at 0x227000 and calls itself there. Same code, two addresses, so
-        # register both names for it.
-        for addr in all_func_addrs:
-            if ROM_ALIAS_LO <= addr < ROM_ALIAS_HI:
-                f.write(f'    func_table_register(0x{addr + ROM_ALIAS_BIAS:08X}, '
-                        f'{prefix}_{addr:08X});\n')
         f.write('}\n')
     print(f'Wrote {reg_path} ({len(all_func_addrs)} registrations)')
 
