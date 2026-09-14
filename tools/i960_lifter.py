@@ -485,6 +485,8 @@ class I960Lifter:
                 lines.append(f'bus_write32({src1}, bus_read32({src2})); /* synmov */')
             elif key == (0x60, 0x02):
                 lines.append(f'bus_write32({src1}, bus_read32({src2})); bus_write32({src1}+4, bus_read32({src2}+4)); bus_write32({src1}+8, bus_read32({src2}+8)); bus_write32({src1}+12, bus_read32({src2}+12)); /* synmovq */')
+                lines.append('/* A reinitialize IAC restarts the processor: nothing of this context survives, so unwind to the boot loop rather than run on. */')
+                lines.append('if (bus_iac_reinit_pending()) return;')
 
             # ---- 0x64: spanbit, scanbit, modac ----
             elif key == (0x64, 0x00):

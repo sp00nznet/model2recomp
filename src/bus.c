@@ -384,6 +384,11 @@ uint32_t bus_i960_prcb(void)
     return s_iac_reinit_prcb ? s_iac_reinit_prcb : bus_read32(4);
 }
 
+bool bus_iac_reinit_pending(void)
+{
+    return s_iac_reinit_ip != 0;
+}
+
 uint32_t bus_iac_take_reinit(uint32_t *out_prcb)
 {
     uint32_t ip = s_iac_reinit_ip;

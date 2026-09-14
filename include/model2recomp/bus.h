@@ -36,6 +36,7 @@
 #define MODEL2RECOMP_BUS_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,6 +51,12 @@ uint32_t bus_read32(uint32_t addr);
  * Returns the new instruction pointer, or 0 if none is pending; *out_prcb
  * receives the new PRCB address. Clears the pending state. */
 uint32_t bus_iac_take_reinit(uint32_t *out_prcb);
+
+/* True between a reinitialize IAC being delivered and the boot loop taking it.
+ * A reinitialize is a control transfer, not a store: the processor restarts at
+ * the new IP and nothing of the current context survives, so recompiled code
+ * that issues one must return rather than execute the next instruction. */
+bool bus_iac_reinit_pending(void);
 
 /* i960 interrupt control register: one vector per external IRQ line, line 0 in
  * the low byte. Loaded by a synmov to 0xFF000004. */
