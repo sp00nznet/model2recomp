@@ -140,6 +140,7 @@ static bool            s_render_done;
 
 /* MODEL2_PROBE=x,y - see the fill loop. -1 disables. */
 static int g_probe_x = -1, g_probe_y = -1;
+static int g_matrix_dump;
 
 /* The 3D output goes to its own bitmap, not to framebuffer VRAM. The game
  * writes that VRAM itself in render-test mode, and MAME likewise renders to a
@@ -939,6 +940,30 @@ static void geo_process_command(uint32_t opcode, stream_t *in, bool *end_code)
     case 0x1B:
         for (int i = 0; i < 12; i++)
             s_geo->matrix[i] = u2f(sread(in));
+        /*
+         * MODEL2_MATRIX=N reports the first N matrices of a field. The 3x3
+         * part is a rotation, possibly scaled, so its rows should be mutually
+         * perpendicular and the same length. Rows of differing length, or a
+         * determinant near zero, mean the coprocessor handed back something
+         * that is not a rotation - which would displace geometry rather than
+         * lose it.
+         */
+        if (g_matrix_dump > 0) {
+            const float *m = s_geo->matrix;
+            float n0 = sqrtf(m[0]*m[0] + m[1]*m[1] + m[2]*m[2]);
+            float n1 = sqrtf(m[3]*m[3] + m[4]*m[4] + m[5]*m[5]);
+            float n2 = sqrtf(m[6]*m[6] + m[7]*m[7] + m[8]*m[8]);
+            float det = m[0]*(m[4]*m[8] - m[5]*m[7])
+                      - m[3]*(m[1]*m[8] - m[2]*m[7])
+                      + m[6]*(m[1]*m[5] - m[2]*m[4]);
+            float d01 = m[0]*m[3] + m[1]*m[4] + m[2]*m[5];
+            float d02 = m[0]*m[6] + m[1]*m[7] + m[2]*m[8];
+            float d12 = m[3]*m[6] + m[4]*m[7] + m[5]*m[8];
+            g_matrix_dump--;
+            fprintf(stderr, "[matrix] |r|=%.4f,%.4f,%.4f det=%.4f "
+                    "dot=%.5f,%.5f,%.5f t=%.1f,%.1f,%.1f\n",
+                    n0, n1, n2, det, d01, d02, d12, m[9], m[10], m[11]);
+        }
         break;
     case 0x0C:
     case 0x1C:
@@ -1544,6 +1569,7 @@ void geo_render_polygons(void)
      * no new list keeps the bitmap it already has, as MAME's render_polygons
      * does when m_render_done is still set. */
     { const char *e = getenv("MODEL2_SHADE"); g_shade_dump = e ? atoi(e) : 0; }
+    { const char *e = getenv("MODEL2_MATRIX"); g_matrix_dump = e ? atoi(e) : 0; }
     { const char *e = getenv("MODEL2_PROBE");
       if (e) sscanf(e, "%d,%d", &g_probe_x, &g_probe_y); }
 

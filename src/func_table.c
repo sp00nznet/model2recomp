@@ -36,7 +36,10 @@ static void prof_dump(void)
                 uint32_t t = s_prof_hits[i]; s_prof_hits[i] = s_prof_hits[j]; s_prof_hits[j] = t;
                 t = s_prof_addr[i]; s_prof_addr[i] = s_prof_addr[j]; s_prof_addr[j] = t;
             }
-    for (int i = 0; i < 25 && s_prof_hits[i]; i++)
+    int top = 25;
+    { const char *e = getenv("MODEL2_PROFILE");
+      if (e && atoi(e) > 1) top = atoi(e); }
+    for (int i = 0; i < top && i < 8192 && s_prof_hits[i]; i++)
         fprintf(stderr, "[prof] %08X %u\n", s_prof_addr[i], s_prof_hits[i]);
 }
 
