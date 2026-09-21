@@ -202,6 +202,35 @@ else is fixed, because what they read back is not yet decrypted. That is a
 blocker in its own right and the corpus table now names it rather than lumping
 those titles in with "the coprocessor is missing".
 
+### Virtua Cop 2: geometry works, the colour path does not
+
+Worth writing down because it is the furthest any CRX title has got and the
+remaining fault is small and named.
+
+Once the display list is walked at the right time, Virtua Cop 2 renders. At
+field 800 it produces **753 polygons**, the engine sees 252,336, and 170,372
+pixels are rasterised and composited - and the screen is still black, because
+every one of those pixels resolves to RGB 0.
+
+The colour path is palette entry -> one of 32 ramps per channel in
+colour-translate RAM, indexed by luma -> gamma. Dumping both games at field 900
+(`MODEL2_RAMDUMP`) says why:
+
+| | Palette entries written | Colour-translate entries written |
+|---|---|---|
+| Virtua Cop | 5,094 / 8,192 | **23,708 / 24,576** |
+| Virtua Cop 2 | 4,172 / 8,192 | **228 / 24,576** |
+
+The palette is populated; the ramps are not. Every polygon indexes an empty ramp
+and comes out black. The region decodes identically for reads and writes and is
+at the same address on every variant (`0x01810000`, `model2_base_mem`), so this
+is not a memory-map fault - the game has not written them at this point, and the
+question is what it is waiting for before it does.
+
+`MODEL2_POLYCOUNT` now prints the three numbers that tell these apart:
+`drawn3d=0` is the rasterizer, `copied=0` with `drawn3d>0` is the composite, and
+`copied>0` with `nonzero=0` is the colour path.
+
 ## Suggested order
 
 1. **Daytona USA.** Same board, smaller program, one well-understood gap. It
