@@ -227,6 +227,7 @@ static uint8_t s_5649_analog_ch;
 
 void sega5649_reset(void)
 {
+    eeprom93c46_reset();
     memset(s_5649_port, 0, sizeof(s_5649_port));
     s_5649_config = 0xFF;
     s_5649_mode = 0;
@@ -238,6 +239,12 @@ uint8_t sega5649_read(uint8_t offset)
     switch (offset & 0x1F) {
     case 0x00: case 0x01: case 0x02: case 0x03:
     case 0x04: case 0x05: case 0x06:
+        /* Port B carries the serial EEPROM's data-out line while port A has
+         * put the chip in ctrlmode; the rest of the time it is the cabinet's
+         * coin/start/test inputs. Answering a flat 0xFF here is what left
+         * Over Rev polling port A twelve thousand times a run. */
+        if (offset == 1)
+            return eeprom93c46_port_b(io_get_input(0));
         /* Port G in counter mode reads four 16-bit counters; nothing here
          * drives them, so it falls through to the ordinary port read. */
         if (s_5649_config & (1u << offset))
@@ -268,7 +275,11 @@ void sega5649_write(uint8_t offset, uint8_t data)
     case 0x00: case 0x01: case 0x02: case 0x03:
     case 0x04: case 0x05: case 0x06:
         s_5649_port[offset] = data;
+        /* Port A is the EEPROM's control lines, not a lamp driver - that is
+         * port F. */
         if (offset == 0)
+            eeprom93c46_port_a(data);
+        else if (offset == 5)
             lamp_output_write(data);
         break;
     case 0x08: s_5649_config = data; break;      /* port direction */
@@ -276,4 +287,119 @@ void sega5649_write(uint8_t offset, uint8_t data)
     case 0x0F: s_5649_analog_ch = (uint8_t)(data & 7); break;
     default: break;                              /* serial out, unmodelled */
     }
+}
+
+/* --------------------------------------------------------------------------
+ * 93C46 serial EEPROM, bit-banged through the 315-5649
+ *
+ * Every CRX board hangs a 64x16 serial EEPROM off the I/O chip's port A and
+ * reads it back on port B, and every CRX game reads its settings out of it
+ * before it will do anything else. Over Rev polls port A 12,159 times in 900
+ * fields and gets nowhere, because port B was answering 0xFF - a data-out line
+ * stuck high, which is not a value any command can produce.
+ *
+ * Port A is an output (MAME model2_state::eeprom_w):
+ *   bit 0  ctrlmode - while set, port B reads back the EEPROM rather than the
+ *          cabinet's own inputs
+ *   bit 5  DI       bit 6  CS       bit 7  CLK
+ *
+ * Port B, in ctrlmode, is 0xC0 | (DO << 5) | 0x10 | (inputs & 0x0F).
+ *
+ * This is the device rather than the board: shift DI in on a rising clock,
+ * decode "start, two opcode bits, six address bits", and for a read clock the
+ * addressed word out most significant bit first. The contents are whatever the
+ * game last wrote; nothing here ships a settings image.
+ * ------------------------------------------------------------------------ */
+
+#define EE_WORDS 64
+
+static uint16_t s_ee[EE_WORDS];
+static bool     s_ee_cs, s_ee_clk, s_ee_di, s_ee_do, s_ee_write_enable;
+static bool     s_ee_ctrlmode;
+static uint32_t s_ee_shift;      /* command bits received since CS rose */
+static int      s_ee_count;      /* how many of them */
+static int      s_ee_out_bits;   /* bits of a read still to clock out */
+static uint16_t s_ee_out;
+
+void eeprom93c46_reset(void)
+{
+    memset(s_ee, 0xFF, sizeof(s_ee));
+    s_ee_cs = s_ee_clk = s_ee_di = false;
+    s_ee_do = true;                       /* idle high, as the part does */
+    s_ee_write_enable = false;
+    s_ee_ctrlmode = false;
+    s_ee_shift = 0; s_ee_count = 0; s_ee_out_bits = 0; s_ee_out = 0;
+}
+
+/* One rising clock edge: take DI, and act once a whole command has arrived. */
+static void eeprom93c46_clock_in(void)
+{
+    if (s_ee_out_bits > 0) {
+        /* Mid-read: the next bit of the word, most significant first. */
+        s_ee_out_bits--;
+        s_ee_do = (s_ee_out >> s_ee_out_bits) & 1;
+        return;
+    }
+
+    s_ee_shift = (s_ee_shift << 1) | (s_ee_di ? 1u : 0u);
+    s_ee_count++;
+
+    /* A command is a start bit, two opcode bits and six address bits. Nothing
+     * is decidable before all nine have arrived, and leading zeros before the
+     * start bit are the part idling. */
+    if (s_ee_count < 9) {
+        if (s_ee_count == 1 && !s_ee_di) s_ee_count = 0;   /* not a start bit */
+        return;
+    }
+
+    uint32_t op   = (s_ee_shift >> 6) & 3;
+    uint32_t addr = s_ee_shift & 0x3F;
+
+    switch (op) {
+    case 2:                                   /* READ */
+        s_ee_out = s_ee[addr];
+        s_ee_out_bits = 16;
+        s_ee_do = false;                      /* the leading dummy zero */
+        break;
+    case 0:                                   /* EWDS / WRAL / ERAL / EWEN */
+        if ((addr & 0x30) == 0x30) s_ee_write_enable = true;
+        else if ((addr & 0x30) == 0x00) s_ee_write_enable = false;
+        else if ((addr & 0x30) == 0x20 && s_ee_write_enable)
+            for (int i = 0; i < EE_WORDS; i++) s_ee[i] = 0xFFFF;   /* ERAL */
+        break;
+    case 1:                                   /* WRITE - data follows */
+    case 3:                                   /* ERASE */
+        if (op == 3 && s_ee_write_enable) s_ee[addr] = 0xFFFF;
+        break;
+    }
+    s_ee_shift = 0;
+    s_ee_count = 0;
+}
+
+/* Port A, as an output. */
+void eeprom93c46_port_a(uint8_t data)
+{
+    s_ee_ctrlmode = (data & 0x01) != 0;
+    s_ee_di = (data & 0x20) != 0;
+
+    bool cs  = (data & 0x40) != 0;
+    bool clk = (data & 0x80) != 0;
+
+    if (!cs) {                 /* deselecting resets the command shifter */
+        s_ee_shift = 0; s_ee_count = 0; s_ee_out_bits = 0; s_ee_do = true;
+    } else if (clk && !s_ee_clk) {
+        eeprom93c46_clock_in();
+    }
+    s_ee_cs = cs;
+    s_ee_clk = clk;
+}
+
+bool eeprom93c46_ctrlmode(void) { return s_ee_ctrlmode; }
+
+/* Port B, as the I/O chip presents it. */
+uint8_t eeprom93c46_port_b(uint8_t inputs)
+{
+    if (!s_ee_ctrlmode)
+        return inputs;
+    return (uint8_t)(0xC0 | (s_ee_do ? 0x20 : 0) | 0x10 | (inputs & 0x0F));
 }

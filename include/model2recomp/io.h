@@ -76,6 +76,14 @@ void lamp_output_write(uint8_t data);
  * the same chip on all three CRX variants. Offsets are register numbers, not
  * i960 addresses: the chip sits on byte lanes 0 and 2, so the bus halves the
  * address before calling in. */
+/* 93C46 serial EEPROM, bit-banged through the 315-5649's port A and read back
+ * on port B. Every CRX game reads its settings out of it before it will do
+ * anything else. */
+void eeprom93c46_reset(void);
+void eeprom93c46_port_a(uint8_t data);
+uint8_t eeprom93c46_port_b(uint8_t inputs);
+bool eeprom93c46_ctrlmode(void);
+
 void sega5649_reset(void);
 uint8_t sega5649_read(uint8_t offset);
 void sega5649_write(uint8_t offset, uint8_t data);

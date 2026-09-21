@@ -289,6 +289,41 @@ says so in the name table long before the colour path works - so a set that
 looks blank on screen may still be telling you exactly what it wants.
 
 
+### The CRX boards have a serial EEPROM, and it was answering nonsense
+
+Every CRX board hangs a 93C46 (64x16) serial EEPROM off the 315-5649's port A
+and reads it back on port B, and every CRX game reads its settings out of it
+before it will do anything else. `MODEL2_HOTREADS` found it: Over Rev reads
+`0x01C00000` 12,159 times in 900 fields, and writes it 9,788 times in 300 - it
+is bit-banging a serial protocol and getting a data-out line stuck high, which
+is not a value any command can produce.
+
+The wiring, from MAME's `model2a_state::model2a`:
+
+| Port | Direction | What |
+|---|---|---|
+| A | out | EEPROM: bit 0 ctrlmode, bit 5 DI, bit 6 CS, bit 7 CLK |
+| B | in | `in0_r` - coins/start/test, or the EEPROM's DO in ctrlmode |
+| C, D | in | cabinet inputs |
+| E | out | billboard |
+| F | out | lamps and coin counters |
+| G | in | DIP switches |
+
+Two things were wrong. There was no EEPROM at all, and `lamp_output_write` was
+being called for port **A** - the EEPROM's control lines - rather than port F.
+Both are fixed, and the device now answers a real read.
+
+**It does not move any title yet, and the reason is worth knowing.** The
+contents come up blank (`0xFFFF`), and these games checksum what they read.
+MAME's own driver says so for Hanguk Pro Yagu 98: "requires certain values to be
+set in the EEPROM and backup RAM, otherwise it fails with Error #1", and ships
+"partly handcrafted EEPROM and backup RAM files ... to allow the game to boot".
+
+So the next step for this family is *contents*, not code: a valid settings image
+per title, or enough of the game's own setup path to let it write one. That is a
+different kind of work from everything else on this page, and it is now the
+named blocker rather than a guess.
+
 ## Suggested order
 
 1. **Daytona USA.** Same board, smaller program, one well-understood gap. It

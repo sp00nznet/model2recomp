@@ -17,7 +17,7 @@ records what happened on a machine that had the sets.
 | Program lifts to C | **35** |
 | That C builds | **35** |
 | Boots | **35** |
-| Draws something | **10** |
+| Draws something | **9** |
 | Reaches attract (still changing at the last sample) | **4** |
 | Blocked on a Sega crypto device regardless of the board | **5** |
 
@@ -88,12 +88,12 @@ Needs an MB86235 "TGPx4" for 3D. Same caveat as 2B: the tilemap and text path is
 
 | Set | Game | Year | ROM | Extract | Lifts | Builds | Boots | Renders | Motion | Furthest | Funcs | Hints | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `skisuprg` | Sega Ski Super G | 1996 | yes | ok | ok | ok | yes | yes | twitching | STATIC | 8573 | 2 | MAME cannot run this set either. |
+| `skisuprg` | Sega Ski Super G | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 8573 | 2 | MAME cannot run this set either. |
 | `stcc` | Sega Touring Car Championship (newer) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 5695 | 0 | MAME cannot run this set either. |
 | `waverunr` | Wave Runner (Japan, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 2802 | 2 | MAME cannot run this set either. |
 | `bel` | Behind Enemy Lines | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 2268 | 1 | MAME cannot run this set either. |
 | `hotd` | The House of the Dead (Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 8259 | 0 | MAME cannot run this set either. |
-| `overrev` | Over Rev (Model 2C, Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 9350 | 1 | MAME cannot run this set either. |
+| `overrev` | Over Rev (Model 2C, Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 9350 | 1 | MAME cannot run this set either. Bit-bangs the 93C46 serial EEPROM hard - 9,788 port A writes in 300 fields - and does n |
 | `rascot2` | Royal Ascot II | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 4502 | 0 | MAME cannot run this set either. |
 | `segawski` | Sega Water Ski (Japan, Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 4213 | 0 | MAME cannot run this set either. |
 | `topskatr` | Top Skater (Export, Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11445 | 9 | MAME cannot run this set either. |

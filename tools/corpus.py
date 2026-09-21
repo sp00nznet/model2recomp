@@ -506,6 +506,10 @@ BLOCKER = {
                 "serial data register once and waits for a reply. Needs the "
                 "68000; a permanently-ready transmitter is not enough.",
     "srallyc":  "Never reaches the first sample field.",
+    "overrev":  "Bit-bangs the 93C46 serial EEPROM hard - 9,788 port A writes "
+                "in 300 fields - and does not accept what it reads back. The "
+                "device is modelled; its contents come up blank and these "
+                "games checksum them.",
 }
 
 BOARD_NOTE = {
