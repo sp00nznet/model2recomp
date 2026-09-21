@@ -134,6 +134,18 @@ eleven took Virtua Cop from 2,654 colours on screen to 1,044. So each round is
 A/B'd against the one before it, and a round that makes a set worse is rolled
 back and the loop stops there.
 
+`I960_DISCOVERY_STATS=1` on a lifter run prints where the entry points came
+from and whether the cross-function-branch restoration is settling. Virtua Cop
+settles at 2,300 entries in four rounds; Virtua Cop 2 climbs 3,369 -> 11,510 and
+is still going when the round cap stops it, manufacturing one-instruction
+fragments as it goes. A routine chopped that fine cannot express a loop - the
+backward branch becomes recursion - which is why the call-depth cap matters.
+
+Cutting the cascade off when it stops converging was tried and is wrong: Virtua
+Cop 2 dropped to 3,369 entries and went from reaching attract mode to a blank
+screen. The entries it manufactures are ones the game needs, however badly
+shaped.
+
 When `discover` stops finding anything and the set still does not draw, the next
 tool is `MODEL2_UNMAPPED=1` (is it reading a register we do not model?) and then
 `MODEL2_TRACE` (what function is it spinning in, and what does that function

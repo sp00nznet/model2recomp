@@ -1071,6 +1071,38 @@ def discover_functions(data, max_size, data_rom=None, hints=None):
     hinted = {a for a in (hints or ()) if a < max_size}
     candidates |= hinted
 
+    # Where the entry points came from, and whether the restoration below is
+    # settling or running away. I960_DISCOVERY_STATS=1 prints both.
+    #
+    # The cascade looks pathological and is load-bearing. Virtua Cop settles at
+    # 2,300 entries in four rounds; Virtua Cop 2 climbs 3,369 -> 11,510 and is
+    # still going when the round cap stops it, manufacturing one-instruction
+    # fragments as it goes - each new entry shrinks the function around it,
+    # which turns more branches into cross-function ones, which adds more
+    # entries. A routine chopped that fine cannot express a loop.
+    #
+    # Stopping the cascade when it stops converging was tried, at a 25%
+    # per-round growth threshold. Virtua Cop was unchanged and Virtua Cop 2
+    # dropped from 11,510 entries to 3,369 - and went from reaching attract
+    # mode to a blank screen. The entries it manufactures are ones the game
+    # needs, however badly shaped. The fragments are a real problem and this is
+    # not the way to fix them; raising the call-depth cap so a fragmented loop
+    # can still run is.
+    #
+    # Where the entry points came from. A routine split into one-instruction
+    # fragments that tail-call each other cannot express a loop - the backward
+    # branch becomes recursion - so knowing which heuristic produced a run of
+    # consecutive addresses is the difference between fixing this and guessing.
+    if os.environ.get('I960_DISCOVERY_STATS'):
+        srcs = [('calls', calls), ('post_ret', post_ret),
+                ('jump_targets', jump_targets), ('func_ptrs', func_ptrs),
+                ('hints', hinted)]
+        print('Discovery sources:')
+        for name, st in srcs:
+            run = sum(1 for a in st if (a - 4) in st)
+            print('  %-14s %6d  (%d consecutive with a predecessor)'
+                  % (name, len(st), run))
+
     def sift(cands):
         """Drop candidates that point at padding rather than code."""
         out = []
@@ -1105,12 +1137,17 @@ def discover_functions(data, max_size, data_rom=None, hints=None):
     # lifter will emit a dispatch for is an address the registration table
     # holds. A dispatch that misses unwinds to the caller and the frame the
     # function allocated is never given back.
-    for _ in range(8):
+    for _round in range(8):
         restored = {t for src, t in branch_edges if owner(src) != owner(t)}
         if restored <= candidates:
             break
         candidates |= restored
         valid = sorted(set(sift(candidates)) | hinted)
+        if os.environ.get('I960_DISCOVERY_STATS'):
+            frag = sum(1 for i in range(1, len(valid))
+                       if valid[i] - valid[i - 1] == 4)
+            print('  restore round %d: %6d entries, %5d of them one '
+                  'instruction after the previous' % (_round + 1, len(valid), frag))
     return valid
 
 
