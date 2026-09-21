@@ -277,6 +277,16 @@ RAM flag that only the sound interrupt would set, and stays there. Nothing about
 the renderer is wrong, and the "more tilemap content than Gunblade" figure that
 first pointed here was 12,269 copies of a blank tile.
 
+What it wants is a *reply*, not readiness. The serial registers it touches are
+`0x009C0000` (data, written once) and `0x009C0004` (control, written six
+times); it never reads either back, so it is waiting on the sound interrupt to
+carry a response. Re-asserting that interrupt every field - which is what a
+permanently-ready transmitter looks like, and what MAME's `sound_ready_w`
+condition amounts to with nothing on the other end - was tried and changes
+nothing: the game is past readiness and waiting for the board to answer. That
+needs the 68000, which makes Virtua Striker a sound-board target rather than a
+renderer or coprocessor one.
+
 `tools/screen_text.py` reads that text out of a `MODEL2_RAMDUMP` tilemap dump.
 Most of these boards boot through a self-test that says what it is doing, and it
 says so in the name table long before the colour path works - so a set that
