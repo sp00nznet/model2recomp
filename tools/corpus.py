@@ -494,6 +494,23 @@ LEGEND = [
 ]
 
 
+# What each set is actually waiting on, where the sweep established it rather
+# than guessed. A row with no entry here has not been diagnosed - that is the
+# work queue, and it is deliberately short because each line cost a trace.
+BLOCKER = {
+    "daytona":  "Coprocessor handshake: the game submits a TGP job and spins "
+                "on a result that never arrives.",
+    "vcop2":    "Colour ramps never written. Renders 753 polygons a field, all "
+                "black: 0 of 32 ramp entries per channel. It writes ~0x30 "
+                "within each 0x100 group; the hardware reads 0x40.",
+    "von":      "Colour ramps never written - 2 of 32 per channel. Same shape "
+                "as vcop2.",
+    "vstriker": "Sound board. Sits on \"SOUND initialize...\", writes the "
+                "serial data register once and waits for a reply. Needs the "
+                "68000; a permanently-ready transmitter is not enough.",
+    "srallyc":  "Never reaches the first sample field.",
+}
+
 BOARD_NOTE = {
     "Model 2":
         "The original 1993 board — the one this library implements. These "
@@ -572,8 +589,9 @@ def stage_report(sets, args, st):
         md += ["## %s (%d)" % (board, len(group)), "", BOARD_NOTE.get(board, ""),
                "", hdr, sep]
         for n, r in sorted(group, key=lambda x: (x[1].get("year", 0), x[0])):
-            note = (r.get("build_error") or r.get("lift_error") or
-                    r.get("run_error") or r.get("extract_error") or "")
+            note = (BLOCKER.get(n) or r.get("build_error") or
+                    r.get("lift_error") or r.get("run_error") or
+                    r.get("extract_error") or "")
             if r.get("protected"):
                 note = ("Behind a Sega 315-5881/317-0229 cryptographic device; "
                         "the data it streams is not decrypted here. " + note).strip()

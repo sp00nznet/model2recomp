@@ -40,7 +40,7 @@ The original 1993 board — the one this library implements. These results are t
 
 | Set | Game | Year | ROM | Extract | Lifts | Builds | Boots | Renders | Motion | Furthest | Funcs | Hints | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `daytona` | Daytona USA (Revision A) | 1994 | yes | ok | ok | ok | yes | yes | frozen | STATIC | 1657 | 0 |  |
+| `daytona` | Daytona USA (Revision A) | 1994 | yes | ok | ok | ok | yes | yes | frozen | STATIC | 1657 | 0 | Coprocessor handshake: the game submits a TGP job and spins on a result that never arrives. |
 | `desert` | Desert Tank | 1994 | yes | ok | ok | ok | yes | yes | advancing | ATTRACT | 1387 | 0 | MAME cannot run this set either. |
 | `vcop` | Virtua Cop (Revision B) | 1994 | yes | ok | ok | ok | yes | yes | advancing | ATTRACT | 2300 | 0 |  |
 
@@ -53,8 +53,8 @@ Same MB86233 coprocessor, same geometry engine and rasterizer; a different I/O c
 | `vf2` | Virtua Fighter 2 (Version 2.1) | 1994 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 6227 | 1 |  |
 | `manxtt` | Manx TT Superbike - DX/Twin (Revision D) | 1995 | yes | ok | ok | ok | yes | yes | frozen | STATIC | 2349 | 2 | MAME cannot run this set either. |
 | `skytargt` | Sky Target | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 3597 | 0 | MAME cannot run this set either. |
-| `srallyc` | Sega Rally Championship - Twin/DX (Revision C) | 1995 | yes | ok | ok | ok | yes | no | blank | NO-FRAMES | 14262 | 1 | MAME cannot run this set either. |
-| `vcop2` | Virtua Cop 2 | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11518 | 7 |  |
+| `srallyc` | Sega Rally Championship - Twin/DX (Revision C) | 1995 | yes | ok | ok | ok | yes | no | blank | NO-FRAMES | 14262 | 1 | MAME cannot run this set either. Never reaches the first sample field. |
+| `vcop2` | Virtua Cop 2 | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11518 | 7 | Colour ramps never written. Renders 753 polygons a field, all black: 0 of 32 ramp entries per channel. It writes ~0x30 w |
 | `airwlkrs` | Air Walkers | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 7558 | 1 | MAME cannot run this set either. |
 | `motoraid` | Motor Raid - Twin | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 4327 | 3 |  |
 | `dynamcop` | Dynamite Cop (Export, Model 2A) | 1998 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 17877 | 0 | MAME cannot run this set either. Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decryp |
@@ -67,11 +67,11 @@ Needs an ADSP-21062 SHARC for the math coprocessor - but that blocks 3D, not att
 | Set | Game | Year | ROM | Extract | Lifts | Builds | Boots | Renders | Motion | Furthest | Funcs | Hints | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `rchase2` | Rail Chase 2 (Revision A) | 1994 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 4901 | 3 |  |
-| `vstriker` | Virtua Striker (Revision A) | 1994 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 2525 | 16 |  |
+| `vstriker` | Virtua Striker (Revision A) | 1994 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 2525 | 16 | Sound board. Sits on "SOUND initialize...", writes the serial data register once and waits for a reply. Needs the 68000; |
 | `fvipers` | Fighting Vipers (Revision D) | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 3593 | 3 | MAME cannot run this set either. |
 | `gunblade` | Gunblade NY (Revision A) | 1995 | yes | ok | ok | ok | yes | yes | advancing | ATTRACT | 5813 | 5 |  |
 | `indy500` | INDY 500 Twin (Revision A, Newer) | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 12176 | 2 | MAME cannot run this set either. |
-| `von` | Cyber Troopers Virtual-On - Twin (Export) | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11925 | 2 | MAME cannot run this set either. |
+| `von` | Cyber Troopers Virtual-On - Twin (Export) | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11925 | 2 | MAME cannot run this set either. Colour ramps never written - 2 of 32 per channel. Same shape as vcop2. |
 | `doa` | Dead or Alive (Model 2B, Revision C) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 8054 | 4 | Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decrypted here. |
 | `dynabb` | Dynamite Baseball | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 17676 | 0 | MAME cannot run this set either. |
 | `lastbrnx` | Last Bronx (Export, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11772 | 2 | MAME cannot run this set either. |
