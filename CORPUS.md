@@ -62,7 +62,7 @@ Same MB86233 coprocessor, same geometry engine and rasterizer; a different I/O c
 
 ## 2B-CRX (15)
 
-Needs an ADSP-21062 SHARC for the math coprocessor. The geometry engine and rasterizer are shared, which is why some of these still put their tilemap screens up.
+Needs an ADSP-21062 SHARC for the math coprocessor - but that blocks 3D, not attract mode. Gunblade NY reaches attract here drawing nothing but tilemaps, so a blank 2B set is stopped by something else and the SHARC is not what would fix it.
 
 | Set | Game | Year | ROM | Extract | Lifts | Builds | Boots | Renders | Motion | Furthest | Funcs | Hints | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -84,7 +84,7 @@ Needs an ADSP-21062 SHARC for the math coprocessor. The geometry engine and rast
 
 ## 2C-CRX (9)
 
-Needs an MB86235 "TGPx4". Same story as 2B: shared rasterizer, absent coprocessor.
+Needs an MB86235 "TGPx4" for 3D. Same caveat as 2B: the tilemap and text path is shared and works, so a blank set is not waiting on the coprocessor.
 
 | Set | Game | Year | ROM | Extract | Lifts | Builds | Boots | Renders | Motion | Furthest | Funcs | Hints | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|

@@ -241,6 +241,35 @@ writes `0x40` is where this picks up.
 `drawn3d=0` is the rasterizer, `copied=0` with `drawn3d>0` is the composite, and
 `copied>0` with `nonzero=0` is the colour path.
 
+### The SHARC is not what is stopping most 2B titles
+
+This page - and this project's own summary of it - said the 2B sets need an
+ADSP-21062 before they can do anything. The sweep disproves it.
+
+**Gunblade NY reaches attract mode on 2B with no coprocessor at all.** Its
+framebuffer holds 440,095 lit pixels and the 3D composite contributed exactly
+zero of them: the whole attract sequence is tilemaps and text, and that path is
+shared across all four boards. So the SHARC blocks 3D, not attract.
+
+Which means a blank 2B set is stopped by something else, and dumping three of
+them says what:
+
+| | Name table | Char RAM | Colour ramps (of 32/channel) | Lit pixels |
+|---|---|---|---|---|
+| Gunblade NY | 2.6% | 55% | **31** | 440,095 |
+| Virtua Striker | **18.8%** | 72% | **31** | **0** |
+| Virtual-On | 0.5% | 62% | **2** | 0 |
+
+Virtual-On is the Virtua Cop 2 fault again - the ramps are unwritten, so
+whatever it draws is black.
+
+Virtua Striker is the interesting one. It has *more* tilemap content than
+Gunblade, full colour ramps, all four layers enabled (no `0x8000` in any
+vscroll register), and it draws nothing. Everything the renderer needs is in
+memory and none of it reaches the screen. That is a rendering fault in shared
+code, and it is the most valuable thing left on this page: it is not a DSP, not
+decryption, and not one title's logic.
+
 ## Suggested order
 
 1. **Daytona USA.** Same board, smaller program, one well-understood gap. It

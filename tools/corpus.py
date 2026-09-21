@@ -504,12 +504,14 @@ BOARD_NOTE = {
         "RAM) and a different program-RAM map. A memory-map job rather than a "
         "DSP one, and the largest single win available: nine titles.",
     "2B-CRX":
-        "Needs an ADSP-21062 SHARC for the math coprocessor. The geometry "
-        "engine and rasterizer are shared, which is why some of these still "
-        "put their tilemap screens up.",
+        "Needs an ADSP-21062 SHARC for the math coprocessor - but that blocks "
+        "3D, not attract mode. Gunblade NY reaches attract here drawing "
+        "nothing but tilemaps, so a blank 2B set is stopped by something else "
+        "and the SHARC is not what would fix it.",
     "2C-CRX":
-        "Needs an MB86235 \"TGPx4\". Same story as 2B: shared rasterizer, "
-        "absent coprocessor.",
+        "Needs an MB86235 \"TGPx4\" for 3D. Same caveat as 2B: the tilemap "
+        "and text path is shared and works, so a blank set is not waiting on "
+        "the coprocessor.",
 }
 
 

@@ -294,11 +294,12 @@ exactly **three** titles on it. That is the whole shortlist:
 | **Daytona USA** | 1993 | Boots, draws, takes a credit; stops on a coprocessor handshake before the 3D. |
 | **Desert Tank** | 1994 | Boots and renders its attract sequence on the generic launcher, with no title-specific code at all. |
 
-Everything else is a CRX board. 2A-CRX is closer than it looks — it runs the
-*same* MB86233 coprocessor and differs in its I/O chip and program-RAM map, so
-it is a memory-map job rather than a DSP one, and it would unlock nine titles
-including *Virtua Fighter 2*, *Sega Rally* and *Virtua Cop 2*. 2B and 2C need an
-ADSP-21062 SHARC and an MB86235 respectively, which are separate DSP projects.
+Everything else is a CRX board, and the memory map is now variant-aware: 256 KB
+of program RAM, the Sega 315-5649 I/O chip, and the CRX texture and luma
+windows. 2B and 2C still need an ADSP-21062 SHARC and an MB86235 for the math
+coprocessor — but that blocks **3D**, not attract mode. *Gunblade NY* reaches
+attract on 2B with no coprocessor at all, drawing nothing but tilemaps, so a
+blank CRX set is stopped by something else.
 **[docs/technical/porting-targets.md](docs/technical/porting-targets.md)** works
 through every title and what each one needs.
 
