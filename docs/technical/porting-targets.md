@@ -263,12 +263,25 @@ them says what:
 Virtual-On is the Virtua Cop 2 fault again - the ramps are unwritten, so
 whatever it draws is black.
 
-Virtua Striker is the interesting one. It has *more* tilemap content than
-Gunblade, full colour ramps, all four layers enabled (no `0x8000` in any
-vscroll register), and it draws nothing. Everything the renderer needs is in
-memory and none of it reaches the screen. That is a rendering fault in shared
-code, and it is the most valuable thing left on this page: it is not a DSP, not
-decryption, and not one title's logic.
+Virtua Striker turned out not to be a renderer fault at all, and it is worth
+recording how that was established because the method generalises.
+
+Its name table holds 12,288 entries. 12,269 of them are tile `0x20` at palette
+0 - a cleared screen. The other 19 spell, at row 25:
+
+    SOUND initialize...
+
+The game is waiting for the sound board. `src/sound.c` is a UART handshake and
+nothing else: no 68000, no SCSP. Virtua Striker prints that line, polls a work
+RAM flag that only the sound interrupt would set, and stays there. Nothing about
+the renderer is wrong, and the "more tilemap content than Gunblade" figure that
+first pointed here was 12,269 copies of a blank tile.
+
+`tools/screen_text.py` reads that text out of a `MODEL2_RAMDUMP` tilemap dump.
+Most of these boards boot through a self-test that says what it is doing, and it
+says so in the name table long before the colour path works - so a set that
+looks blank on screen may still be telling you exactly what it wants.
+
 
 ## Suggested order
 
