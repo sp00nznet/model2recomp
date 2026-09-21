@@ -239,6 +239,14 @@ uint8_t sega5649_read(uint8_t offset)
     switch (offset & 0x1F) {
     case 0x00: case 0x01: case 0x02: case 0x03:
     case 0x04: case 0x05: case 0x06:
+        /* Port A is an output on every CRX board - MAME binds out_pa_callback
+         * and never an input one - so reading it gives back the latch, whatever
+         * the direction register currently says. Returning the cabinet's inputs
+         * instead handed the game 0xFF for the EEPROM control lines it had just
+         * written, which is not a value it can have put there. */
+        if (offset == 0)
+            return s_5649_port[0];
+
         /* Port B carries the serial EEPROM's data-out line while port A has
          * put the chip in ctrlmode; the rest of the time it is the cabinet's
          * coin/start/test inputs. Answering a flat 0xFF here is what left
