@@ -500,9 +500,11 @@ LEGEND = [
 BLOCKER = {
     "daytona":  "Coprocessor handshake: the game submits a TGP job and spins "
                 "on a result that never arrives.",
-    "vcop2":    "Colour ramps never written. Renders 753 polygons a field, all "
-                "black: 0 of 32 ramp entries per channel. It writes ~0x30 "
-                "within each 0x100 group; the hardware reads 0x40.",
+    "vcop2":    "Colour ramp fill stops short. Renders 753 polygons a field, "
+                "all black: 0 of 32 ramp entries per channel. Writes 228 "
+                "entries in two runs ending at 0x3F and 0x13C - the hardware "
+                "reads 0x40 and 0x140. Identical at 900, 3000 and 12000 "
+                "fields, so it has stopped, not stalled mid-fill.",
     "von":      "Colour ramps never written - 2 of 32 per channel. Same shape "
                 "as vcop2.",
     "vstriker": "Sound board. Sits on \"SOUND initialize...\", writes the "

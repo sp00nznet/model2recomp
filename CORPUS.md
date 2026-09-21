@@ -54,7 +54,7 @@ Same MB86233 coprocessor, same geometry engine and rasterizer; a different I/O c
 | `manxtt` | Manx TT Superbike - DX/Twin (Revision D) | 1995 | yes | ok | ok | ok | yes | yes | frozen | STATIC | 2349 | 2 | MAME cannot run this set either. |
 | `skytargt` | Sky Target | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 3597 | 0 | MAME cannot run this set either. |
 | `srallyc` | Sega Rally Championship - Twin/DX (Revision C) | 1995 | yes | ok | ok | ok | yes | no | blank | NO-FRAMES | 14262 | 1 | MAME cannot run this set either. Never reaches the first sample field. |
-| `vcop2` | Virtua Cop 2 | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11518 | 7 | Colour ramps never written. Renders 753 polygons a field, all black: 0 of 32 ramp entries per channel. It writes ~0x30 w |
+| `vcop2` | Virtua Cop 2 | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11518 | 7 | Colour ramp fill stops short. Renders 753 polygons a field, all black: 0 of 32 ramp entries per channel. Writes 228 entr |
 | `airwlkrs` | Air Walkers | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 7558 | 1 | MAME cannot run this set either. |
 | `motoraid` | Motor Raid - Twin | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 4327 | 3 |  |
 | `dynamcop` | Dynamite Cop (Export, Model 2A) | 1998 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 17877 | 0 | MAME cannot run this set either. Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decryp |
