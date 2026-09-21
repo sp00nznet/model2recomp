@@ -144,6 +144,8 @@ static int g_matrix_dump;
 
 /* MODEL2_POLYCOUNT prints how many of each display-list command ran. */
 unsigned g_geo_cmd_hist[32];
+unsigned g_geo_parses, g_geo_jumps;
+uint32_t g_geo_parse_addr, g_geo_parse_first;
 
 /* The 3D output goes to its own bitmap, not to framebuffer VRAM. The game
  * writes that VRAM itself in render-test mode, and MAME likewise renders to a
@@ -1073,6 +1075,14 @@ void geo_parse(void)
     uint32_t op_count = 0;
     bool end_code = false;
 
+    /* Where this parse started and what it found there. A list that yields no
+     * commands at all is either pointed somewhere empty or is nothing but
+     * jumps, and those are different faults - the counters cannot tell them
+     * apart, so record the entry state. */
+    g_geo_parse_addr = geo_read_start_address() & 0x1FFFF;
+    g_geo_parse_first = shas(&in, 1) ? in.p[0] : 0;
+    g_geo_parses++;
+
     geo_frame_start();
 
     while (!end_code && shas(&in, 1) && op_count++ < 0x8000) {
@@ -1080,6 +1090,7 @@ void geo_parse(void)
 
         /* The high bit makes it a jump rather than a command. */
         if (opcode & 0x80000000) {
+            g_geo_jumps++;
             in.p = base + ((opcode & 0x1FFFF) / 4);
             continue;
         }

@@ -380,10 +380,37 @@ uint32_t model2recomp_field_sync(void)
 
         /* The geometry engine walks the stream the game submitted last field,
          * then the frame is drawn from the resulting polygon list, then the
-         * VBlank interrupt lets the game build the next one. */
-        /* Only walk a list the game has actually finished writing. */
-        if (geo_take_list_ready())
-            geo_parse();
+         * VBlank interrupt lets the game build the next one.
+         *
+         * The hardware's rule for when to walk it, from MAME's
+         * model2_state::screen_vblank: every vblank in 60 Hz mode, and every
+         * other one in 30 Hz mode, which is what bit 0 of the video control
+         * register selects. It does not wait to be told the list is finished.
+         *
+         * This used to parse only when the game wrote the read-address
+         * register, on the theory that doing otherwise races the construction
+         * of the next list. It does not - re-rendering a stale list was a
+         * separate fault, fixed by honouring render_done - and the gate cost
+         * the games that set that register once and then just rewrite the
+         * buffer every frame. Motor Raid published eight times in nine hundred
+         * fields and so was parsed eight times; Manx TT and Virtua Cop 2 each
+         * had a display list sitting in buffer RAM that nothing ever read.
+         *
+         * MODEL2_LISTGATE=1 restores the old behaviour for A/B.
+         */
+        {
+            static int gate = -1;
+            if (gate < 0) {
+                const char *e = getenv("MODEL2_LISTGATE");
+                gate = (e && atoi(e)) ? 1 : 0;
+            }
+            bool parse = gate ? geo_take_list_ready()
+                              : ((videoctl_read() & 1) == 0
+                                 || (s_fields_done & 1) == 0);
+            if (gate) (void)0; else (void)geo_take_list_ready();
+            if (parse)
+                geo_parse();
+        }
         model2recomp_end_frame();
         /* MODEL2_POLYCOUNT=N reports how many polygons the geometry engine
          * produced, every N fields. Zero means the game is not submitting a
@@ -401,6 +428,13 @@ uint32_t model2recomp_field_sync(void)
                 extern unsigned g_strip_underrun, g_strip_linkend,
                                 g_strip_count;
                 extern unsigned g_geo_cmd_hist[32];
+                extern unsigned g_geo_parses, g_geo_jumps;
+                extern uint32_t g_geo_parse_addr, g_geo_parse_first;
+                extern unsigned g_geo_wr_lo, g_geo_wr_hi;
+                fprintf(stderr, "[geo] parses=%u jumps=%u rd=%05X first=%08X "
+                        "wr=%05X..%05X\n",
+                        g_geo_parses, g_geo_jumps, g_geo_parse_addr,
+                        g_geo_parse_first, g_geo_wr_lo, g_geo_wr_hi);
                 fprintf(stderr, "[geocmd]");
                 for (int c = 0; c < 32; c++)
                     if (g_geo_cmd_hist[c])
@@ -413,7 +447,26 @@ uint32_t model2recomp_field_sync(void)
                         g_strip_count, g_strip_linkend, g_strip_underrun);
                 const uint32_t *dm = geo_get_destmap();
                 unsigned drawn = 0;
-                if (dm) for (int i = 0; i < 512 * 384; i++) if (dm[i]) drawn++;
+                unsigned dmcolour = 0; uint32_t dmsample = 0;
+                if (dm) for (int i = 0; i < 512 * 384; i++) if (dm[i]) {
+                    drawn++;
+                    if (dm[i] & 0x00FFFFFF) { dmcolour++; dmsample = dm[i]; }
+                }
+                /* ...and what actually reached the framebuffer.
+                 *
+                 * These three numbers separate three different faults that all
+                 * look like a black screen. drawn3d=0 is the rasterizer not
+                 * drawing. copied=0 with drawn3d>0 is the composite. And
+                 * copied>0 with nonzero=0 - which is where Virtua Cop 2 sits -
+                 * means the scene was drawn and copied in full, and every
+                 * pixel of it came out black: a colour-path fault, not a
+                 * geometry one. */
+                unsigned fbnz = 0;
+                const uint8_t *fbp = video_get_framebuffer();
+                if (fbp) for (int i = 0; i < FB_WIDTH * FB_HEIGHT * 4; i++)
+                    if (fbp[i] && (i & 3) != 3) fbnz++;
+                extern unsigned g_fb_copied;
+                fprintf(stderr, "[fb] nonzero=%u copied=%u\n", fbnz, g_fb_copied);
                 extern unsigned long g_dispatches;
                 static unsigned long prev_disp;
                 fprintf(stderr, "[disp] f%ld calls=%lu\n", s_fields_done,

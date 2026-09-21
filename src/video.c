@@ -89,9 +89,12 @@ static bool s_geo_list_ready;
 
 /* Push one word onto the command stream at the current write address. */
 unsigned g_geo_pushes, g_geo_publishes, g_geo_opcodes;
+unsigned g_geo_wr_lo = 0xFFFFFFFFu, g_geo_wr_hi;
 static void geo_push(uint32_t data)
 {
     g_geo_pushes++;
+    if (s_geo_write_addr < g_geo_wr_lo) g_geo_wr_lo = s_geo_write_addr;
+    if (s_geo_write_addr > g_geo_wr_hi) g_geo_wr_hi = s_geo_write_addr;
     bus_bufferram_write32(s_geo_write_addr, data);
     s_geo_write_addr += 4;
 }
@@ -575,6 +578,8 @@ static void tilemap_draw_layer(int layer, int pass, int opaque)
 
 /* --- Rendering --- */
 
+unsigned g_fb_copied;
+
 void video_render_frame(void)
 {
     if (!s_framebuffer) return;
@@ -601,6 +606,7 @@ void video_render_frame(void)
      * was drawn there, so the tilemap below shows through.
      */
     const uint32_t *scene = geo_get_destmap();
+    g_fb_copied = 0;
     if (scene) {
         for (int y = 0; y < FB_HEIGHT; y++) {
             const uint32_t *src = scene + (size_t)y * 512;
@@ -609,6 +615,7 @@ void video_render_frame(void)
             for (int x = 0; x < FB_WIDTH; x++) {
                 uint32_t p = src[x];
                 if (!p) continue;
+                g_fb_copied++;
                 /* The rasterizer already produced 8-bit RGB. */
                 dst[x * 4 + 0] = (uint8_t)(p >> 16);
                 dst[x * 4 + 1] = (uint8_t)(p >> 8);
