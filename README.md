@@ -116,7 +116,7 @@ MAME's behaviour where it was ported from it.
 | Platform (SDL2) | **Done** | Window, scaling, presentation, keyboard and mouse |
 | Sound | **Stub** | UART handshake only — no 68000, no MultiPCM, no audio |
 | Copro data ROM | **Not implemented** | The coprocessor's external data socket reads zero. Empty on the reference title; Daytona USA puts 4 MB there |
-| Model 2A / 2B / 2C | **Not implemented** | The variant enum only labels a log line. 2A is close — same coprocessor, different I/O chip and RAM map. 2B needs an ADSP-21062 SHARC and 2C an MB86235 |
+| Model 2A / 2B / 2C | **Partial** | The variant now picks the memory map: 256 KB of program RAM, the Sega 315-5649 I/O chip, and the CRX texture and luma RAM windows. 2A needs nothing else in principle; 2B still needs an ADSP-21062 SHARC and 2C an MB86235 for the math coprocessor, so neither can do 3D |
 
 ### What "rasterizer" means here, and what it does not
 

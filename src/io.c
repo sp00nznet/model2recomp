@@ -206,3 +206,74 @@ void lamp_output_write(uint8_t data)
     s_lamp_state = data;
     /* Bits 0-1: coin counters, bits 2-7: lamps */
 }
+
+/* --------------------------------------------------------------------------
+ * Sega 315-5649 I/O controller
+ *
+ * What the CRX boards have in place of the Model 1 I/O board's dual-port RAM:
+ * a 32-byte register file rather than a command protocol, and identical on
+ * 2A, 2B and 2C. Ported from MAME's sega/315_5649.cpp (Dirk Best).
+ *
+ * Ports A-G are bidirectional, one bit per port in the direction register
+ * deciding which. A port configured as an input reads the host; one configured
+ * as an output reads back what was last written to it, which is a thing the
+ * games actually rely on.
+ * ------------------------------------------------------------------------ */
+
+static uint8_t s_5649_port[8];
+static uint8_t s_5649_config;     /* 1 = input, 0 = output; all inputs at reset */
+static uint8_t s_5649_mode;
+static uint8_t s_5649_analog_ch;
+
+void sega5649_reset(void)
+{
+    memset(s_5649_port, 0, sizeof(s_5649_port));
+    s_5649_config = 0xFF;
+    s_5649_mode = 0;
+    s_5649_analog_ch = 0;
+}
+
+uint8_t sega5649_read(uint8_t offset)
+{
+    switch (offset & 0x1F) {
+    case 0x00: case 0x01: case 0x02: case 0x03:
+    case 0x04: case 0x05: case 0x06:
+        /* Port G in counter mode reads four 16-bit counters; nothing here
+         * drives them, so it falls through to the ordinary port read. */
+        if (s_5649_config & (1u << offset))
+            return io_get_input(offset < 4 ? offset : 0);
+        return s_5649_port[offset];
+
+    /* RS-422 receive. No satellite cabinet on the other end. */
+    case 0x0B: case 0x0C:
+        return 0xFF;
+
+    /* RS-422 status. MAME hardcodes "receive buffers full, transmit buffers
+     * empty" and the games are happy with it; a real link would need more. */
+    case 0x0D:
+        return 0x0C;
+
+    /* Analog input, auto-incrementing through eight channels. Nothing here
+     * has a wheel or a pedal yet, so every channel reads centred. */
+    case 0x0F:
+        s_5649_analog_ch = (uint8_t)((s_5649_analog_ch + 1) & 7);
+        return 0x80;
+    }
+    return 0xFF;
+}
+
+void sega5649_write(uint8_t offset, uint8_t data)
+{
+    switch (offset & 0x1F) {
+    case 0x00: case 0x01: case 0x02: case 0x03:
+    case 0x04: case 0x05: case 0x06:
+        s_5649_port[offset] = data;
+        if (offset == 0)
+            lamp_output_write(data);
+        break;
+    case 0x08: s_5649_config = data; break;      /* port direction */
+    case 0x0E: s_5649_mode = data; break;        /* counter / RS-422 mode */
+    case 0x0F: s_5649_analog_ch = (uint8_t)(data & 7); break;
+    default: break;                              /* serial out, unmodelled */
+    }
+}

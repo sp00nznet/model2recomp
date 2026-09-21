@@ -32,6 +32,11 @@ int main(int argc, char *argv[])
 {
     const char *rom_dir = (argc > 1) ? argv[1] : "roms";
     const char *title   = (argc > 2) ? argv[2] : "Model 2 corpus";
+    /* Board variant, from the catalog: 0 original, 1 2A, 2 2B, 3 2C. It picks
+     * the memory map - 256KB of program RAM and a 315-5649 on the CRX boards -
+     * so getting it wrong makes a game read ROM where its variables live. */
+    model2_variant_t board = (argc > 3)
+        ? (model2_variant_t)atoi(argv[3]) : MODEL2_ORIGINAL;
 
     /* Unbuffered, because the sweep kills whatever is still running when the
      * timeout expires - and a game that had to be killed is precisely the one
@@ -41,10 +46,7 @@ int main(int argc, char *argv[])
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
 
-    /* The board variant is not a parameter yet: nothing in the library
-     * branches on it, so passing MODEL2_ORIGINAL for every set is honest
-     * rather than lazy. When 2A lands, this reads it from the catalog. */
-    if (!model2recomp_init(title, 2, MODEL2_ORIGINAL)) {
+    if (!model2recomp_init(title, 2, board)) {
         fprintf(stderr, "init failed\n");
         return 1;
     }

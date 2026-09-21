@@ -960,3 +960,13 @@ bool copro_output_empty(void)
     copro_pump();
     return s_out_head == s_out_tail;
 }
+
+/* 0x00980014. MAME's copro_status_r: all ones until the coprocessor has been
+ * given a program, zero afterwards. Sonic the Fighters reads bit 1 of it and
+ * MAME's own comment says the purpose is unknown - which is a reason to match
+ * the reference exactly rather than to guess, and a reason it matters on the
+ * CRX boards, where there is no coprocessor here to upload anything to. */
+uint32_t copro_status_read(void)
+{
+    return s_upload_cnt ? 0u : 0xFFFFFFFFu;
+}

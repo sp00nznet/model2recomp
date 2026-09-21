@@ -4,8 +4,9 @@
  * 32-bit address space routed to hardware:
  *
  *   0x00000000-0x001FFFFF  Program ROM (2MB)
- *   0x00200000-0x0021FFFF  Program RAM (128KB, Model 2 original)
- *   0x00220000-0x0023FFFF  Program ROM extension (128KB, Model 2 original)
+ *   0x00200000-0x0021FFFF  Program RAM (128KB, original board)
+ *   0x00220000-0x0023FFFF  Program ROM extension (original board) /
+ *                          more program RAM (CRX: 256KB in total)
  *   0x00500000-0x005FFFFF  Work RAM (1MB)
  *   0x00800000-0x00803FFF  Geometry engine
  *   0x00804000-0x00807FFF  Geo program RAM
@@ -36,6 +37,7 @@
 #define MODEL2RECOMP_BUS_H
 
 #include <stdint.h>
+#include "model2recomp/model2recomp.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -123,6 +125,10 @@ typedef void (*bus_vblank_callback_t)(void);
 void bus_set_vblank_callback(bus_vblank_callback_t cb);
 
 /* --- Initialize bus (called by model2recomp_init) --- */
+/* Which board the map describes. Call before bus_init; the default is the
+ * original 1993 board. */
+void bus_set_variant(model2_variant_t variant);
+
 void bus_init(void);
 void bus_shutdown(void);
 

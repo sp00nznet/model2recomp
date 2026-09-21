@@ -155,6 +155,36 @@ hints took Desert Tank from a running attract sequence to a static screen, and
 eleven took Virtua Cop from 2,654 colours on screen to 1,044. Discovery now
 measures each round and rolls back one that costs more than it buys.
 
+## The CRX boards, after the sweep
+
+`corpus.py` put every set through the pipeline, and the results moved the CRX
+work from "a DSP project" to a short list of concrete faults. The library now
+takes the board variant (`model2recomp_init`'s third argument actually changes
+the map, where before it only labelled a log line):
+
+| | Original | CRX (2A / 2B / 2C) |
+|---|---|---|
+| `0x00200000` | 128 KB RAM, program ROM mirrored at `0x00220000` | **256 KB RAM**, no mirror |
+| `0x01C00000` | Model 1 I/O Board 2, 4 KB of dual-port RAM | **Sega 315-5649**, a 32-byte register file |
+| Texture RAM | `0x12000000` | **`0x11000000`**, two 1 MB banks |
+| Luma RAM | `0x12800000`, one byte per dword | **`0x11400000`**, one byte per word |
+| Serial | `0x01C80000` | `0x01C80000` (2A/2C), **`0x009C0000`** (2B) |
+
+The 315-5649 is the same chip on all three CRX variants, which is why it was
+worth doing once: it is not a 2A part.
+
+### The one that was not a CRX bug at all
+
+Sky Target spins on bit 0 of `0x01C80002` — the i8251 status register — and
+never leaves. The UART sits on byte lanes 0 and 2 of the dword, exactly like
+the dual-port RAM next to it, and `bus_read32` was returning only lane 0. A
+16-bit read of the status register, which is how the games actually poll it,
+therefore always came back zero.
+
+That is a fault on the **original** board too. Virtua Cop and Daytona simply
+never read it that way, so one game could not have found it and two did not.
+It is the clearest argument for the sweep there is.
+
 ## Suggested order
 
 1. **Daytona USA.** Same board, smaller program, one well-understood gap. It

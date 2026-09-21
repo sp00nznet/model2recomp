@@ -77,6 +77,11 @@ BSD-3-Clause — ported from MAME
                                   (I/O board 2 DPRAM command protocol)
                                 (c) Dirk Best
 
+    src/io.c                    sega/315_5649.cpp
+                                  (315-5649 I/O controller register model:
+                                   the CRX boards' I/O chip)
+                                (c) Dirk Best
+
     tools/i960_disasm.py        cpu/i960/i960.cpp
                                   (opcode tables, operand mode bits)
                                 (c) Farfetch'd; R. Belmont

@@ -71,6 +71,15 @@ void io_update_dpram(uint16_t screen_w, uint16_t screen_h);
 /* --- Lamp/coin counter outputs --- */
 void lamp_output_write(uint8_t data);
 
+/* --- Sega 315-5649 I/O controller (2A/2B/2C-CRX) ---
+ * A 32-byte register file in place of the original board's dual-port RAM, and
+ * the same chip on all three CRX variants. Offsets are register numbers, not
+ * i960 addresses: the chip sits on byte lanes 0 and 2, so the bus halves the
+ * address before calling in. */
+void sega5649_reset(void);
+uint8_t sega5649_read(uint8_t offset);
+void sega5649_write(uint8_t offset, uint8_t data);
+
 #ifdef __cplusplus
 }
 #endif

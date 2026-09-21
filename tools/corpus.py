@@ -320,6 +320,9 @@ def corpus_exe(name):
     return None
 
 
+# model2_variant_t, as the launcher's fourth argument.
+BOARD_ARG = {"Model 2": 0, "2A-CRX": 1, "2B-CRX": 2, "2C-CRX": 3}
+
 PIXEL_STRIDE = 3 * 11          # every 11th pixel, on a pixel boundary
 
 
@@ -405,7 +408,8 @@ def stage_run(sets, args, st):
         os.makedirs(shots, exist_ok=True)
         e = dict(env, MODEL2_SCREENSHOT=os.path.join(shots, "f"))
         t0 = time.time()
-        code, log = run([exe, roms, rec.get("desc", name)],
+        code, log = run([exe, roms, rec.get("desc", name),
+                         str(BOARD_ARG.get(rec.get("board"), 0))],
                         timeout=args.run_timeout, env=e,
                         log=os.path.join(set_dir(name), "run.log"))
 

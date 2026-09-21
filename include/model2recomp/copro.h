@@ -25,5 +25,6 @@ void     copro_function_write(uint32_t offset, uint32_t data); /* 0x00880000 */
 void     copro_fifo_write(uint32_t data);    /* 0x00884000 */
 uint32_t copro_fifo_read(void);
 bool     copro_output_empty(void);           /* 0x00980004 */
+uint32_t copro_status_read(void);            /* 0x00980014 */
 
 #endif /* MODEL2RECOMP_COPRO_H */

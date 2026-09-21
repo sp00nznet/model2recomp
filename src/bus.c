@@ -22,8 +22,16 @@
 /* Memory regions */
 static uint8_t *s_program_rom = NULL;   /* 0x00000000, 2MB */
 static uint32_t s_program_rom_size = 0;
-static uint8_t *s_program_ram = NULL;   /* 0x00200000, 128KB (Model 2 original) */
-static uint8_t *s_program_rom_ext = NULL; /* 0x00220000, 128KB (mapped from ROM offset 0x20000) */
+/* Program RAM at 0x00200000. The original board puts 128KB here and shows the
+ * second 128KB of program ROM at 0x00220000; every CRX board has 256KB of RAM
+ * across the whole range and no ROM mirror at all. A 2A game that keeps its
+ * variables above 0x00220000 therefore reads program ROM and writes nowhere,
+ * which looks like a hang rather than a memory-map fault. */
+static uint8_t *s_program_ram = NULL;
+static uint32_t s_program_ram_size = 0x20000;
+#define PROGRAM_RAM_TOP (0x00200000u + s_program_ram_size)
+static model2_variant_t s_variant = MODEL2_ORIGINAL;
+static bool is_crx(void) { return s_variant != MODEL2_ORIGINAL; }
 static uint8_t *s_workram = NULL;       /* 0x00500000, 1MB */
 static uint8_t *s_bufferram = NULL;     /* 0x00900000, 128KB */
 static uint8_t *s_cpu_control = NULL;   /* 0x00E00000, 56 bytes */
@@ -47,9 +55,18 @@ static uint8_t s_dpram[0x1000];
 /* VBlank callback */
 static bus_vblank_callback_t s_vblank_cb = NULL;
 
+void bus_set_variant(model2_variant_t v)
+{
+    s_variant = v;
+    /* The only thing the variant changes in the map today: 256KB of program
+     * RAM across 0x00200000-0x0023FFFF on CRX, against 128KB plus a ROM mirror
+     * on the original board. Call before bus_init. */
+    s_program_ram_size = (v == MODEL2_ORIGINAL) ? 0x20000u : 0x40000u;
+}
+
 void bus_init(void)
 {
-    s_program_ram = (uint8_t *)calloc(1, 0x20000);   /* 128KB */
+    s_program_ram = (uint8_t *)calloc(1, 0x40000);   /* 128KB, or 256KB on CRX */
     s_workram     = (uint8_t *)calloc(1, 0x100000);  /* 1MB */
     s_bufferram   = (uint8_t *)calloc(1, 0x20000);   /* 128KB */
     s_cpu_control = (uint8_t *)calloc(1, 0x38);      /* 56 bytes */
@@ -57,6 +74,7 @@ void bus_init(void)
     s_char_ram    = (uint8_t *)calloc(1, 0x80000);   /* 512KB */
     s_backup_sram = (uint8_t *)calloc(1, 0x4000);    /* 16KB */
     memset(s_dpram, 0xFF, sizeof(s_dpram));
+    sega5649_reset();
 
     printf("[bus] Memory bus initialized\n");
 }
@@ -326,12 +344,12 @@ uint32_t bus_read32(uint32_t addr)
         return 0;
     }
 
-    /* Program RAM: 0x00200000-0x0021FFFF (Model 2 original) */
-    if (addr >= 0x00200000 && addr < 0x00220000) {
+    /* Program RAM: 128KB on the original board, 256KB on every CRX. */
+    if (addr >= 0x00200000 && addr < PROGRAM_RAM_TOP) {
         return mem_read32(s_program_ram, addr - 0x00200000);
     }
 
-    /* Program ROM extension: 0x00220000-0x0023FFFF */
+    /* Program ROM extension: 0x00220000-0x0023FFFF, original board only. */
     if (addr >= 0x00220000 && addr < 0x00240000) {
         if (s_program_rom && (addr - 0x00220000 + 0x20000) < s_program_rom_size)
             return mem_read32(s_program_rom, addr - 0x00220000 + 0x20000);
@@ -372,6 +390,7 @@ uint32_t bus_read32(uint32_t addr)
             case 1: return fifo_control_read();     /* 0x00980004 */
             /* Field status: the frame boundary for the recompiled game. */
             case 3: return model2recomp_field_sync(); /* 0x0098000C */
+            case 5: return copro_status_read();     /* 0x00980014 */
             case 12: case 13: case 14: case 15:     /* 0x00980030-0x0098003F */
                 return tgpid_read(reg - 12);
             default: return 0;
@@ -431,12 +450,33 @@ uint32_t bus_read32(uint32_t addr)
      * consecutive in DPRAM if the halving is done here. */
     if (addr >= 0x01C00000 && addr < 0x01C01000) {
         uint32_t d = (addr - 0x01C00000) >> 1;
+        /* Same byte lanes, a different chip behind them: the CRX boards have a
+         * 32-byte 315-5649 register file where the original has 2KB of
+         * dual-port RAM and a command protocol. */
+        if (is_crx()) {
+            if (d >= 0x20) return 0xFFFFFFFFu;
+            return (uint32_t)sega5649_read((uint8_t)d)
+                 | ((uint32_t)sega5649_read((uint8_t)(d + 1)) << 16);
+        }
         return (uint32_t)dpram_read(d) | ((uint32_t)dpram_read(d + 1) << 16);
     }
 
-    /* UART: 0x01C80000-0x01C80003 */
+    /* UART: 0x01C80000-0x01C80003.
+     *
+     * An 8-bit device on a 32-bit bus with byte lanes 0 and 2 populated
+     * (MAME's umask16(0x00ff) over the pair of halves), exactly like the
+     * DPRAM: data register at +0, status at +2. Returning only register 0 for
+     * the whole dword is what made a 16-bit read of the status - which is how
+     * the games actually poll it - come back as zero. Sky Target spins on bit
+     * 0 of 0x01C80002 forever, and it is not alone; the original board has the
+     * same mapping, Virtua Cop and Daytona simply never read it this way. */
     if (addr >= 0x01C80000 && addr < 0x01C80004) {
-        return (uint32_t)uart_read(addr - 0x01C80000);
+        return (uint32_t)uart_read(0) | ((uint32_t)uart_read(1) << 16);
+    }
+
+    /* 2B-CRX puts the same two registers at 0x009C0000 and 0x009C0004. */
+    if (s_variant == MODEL2B_CRX && addr >= 0x009C0000 && addr < 0x009C0008) {
+        return (uint32_t)uart_read((addr - 0x009C0000) >> 2);
     }
 
     /* Link board: 0x01A00000 and its mirror at 0x01A10000 */
@@ -517,6 +557,17 @@ uint32_t bus_read32(uint32_t addr)
         return (uint32_t)lumaram_read((addr - 0x12800000) >> 2);
     }
 
+    /* The CRX video board puts the same memories somewhere else: texture RAM
+     * at 0x11000000 (two 1MB banks, each mirrored once) and luma RAM at
+     * 0x11400000 on a 16-bit lane rather than a 32-bit one. A 2B game writing
+     * its textures there was writing into nothing. */
+    if (is_crx() && addr >= 0x11400000 && addr < 0x11410000) {
+        return (uint32_t)lumaram_read((addr - 0x11400000) >> 1);
+    }
+    if (is_crx() && addr >= 0x11000000 && addr < 0x11400000) {
+        return 0;                       /* TODO: texture RAM read, as below */
+    }
+
     /* Unmapped */
     /* printf("[bus] Unmapped read32: 0x%08X\n", addr); */
     return 0;
@@ -533,7 +584,7 @@ uint16_t bus_read16(uint32_t addr)
     if (addr < 0x00200000 && s_program_rom && addr < s_program_rom_size)
         return mem_read16(s_program_rom, addr);
 
-    if (addr >= 0x00200000 && addr < 0x00220000)
+    if (addr >= 0x00200000 && addr < PROGRAM_RAM_TOP)
         return mem_read16(s_program_ram, addr - 0x00200000);
 
     /* Fall through to 32-bit read and extract */
@@ -550,7 +601,7 @@ uint8_t bus_read8(uint32_t addr)
     if (addr < 0x00200000 && s_program_rom && addr < s_program_rom_size)
         return s_program_rom[addr];
 
-    if (addr >= 0x00200000 && addr < 0x00220000)
+    if (addr >= 0x00200000 && addr < PROGRAM_RAM_TOP)
         return s_program_ram[addr - 0x00200000];
 
     {
@@ -653,8 +704,8 @@ void bus_write32(uint32_t addr, uint32_t val)
     /* Program ROM: 0x00000000-0x001FFFFF (writes ignored) */
     if (addr < 0x00200000) return;
 
-    /* Program RAM: 0x00200000-0x0021FFFF */
-    if (addr >= 0x00200000 && addr < 0x00220000) {
+    /* Program RAM: 128KB on the original board, 256KB on every CRX. */
+    if (addr >= 0x00200000 && addr < PROGRAM_RAM_TOP) {
         mem_write32(s_program_ram, addr - 0x00200000, val);
         return;
     }
@@ -772,14 +823,29 @@ void bus_write32(uint32_t addr, uint32_t val)
     /* DPRAM: 0x01C00000-0x01C00FFF (see bus_read32 for the lane mapping) */
     if (addr >= 0x01C00000 && addr < 0x01C01000) {
         uint32_t d = (addr - 0x01C00000) >> 1;
+        if (is_crx()) {
+            if (d < 0x20) {
+                sega5649_write((uint8_t)d, (uint8_t)val);
+                sega5649_write((uint8_t)(d + 1), (uint8_t)(val >> 16));
+            }
+            return;
+        }
         dpram_write(d, (uint8_t)val);
         dpram_write(d + 1, (uint8_t)(val >> 16));
         return;
     }
 
-    /* UART: 0x01C80000-0x01C80003 */
+    /* UART: 0x01C80000-0x01C80003 (see bus_read32 for the lane mapping) */
     if (addr >= 0x01C80000 && addr < 0x01C80004) {
-        uart_write(addr - 0x01C80000, (uint8_t)val);
+        uart_write(0, (uint8_t)val);
+        uart_write(1, (uint8_t)(val >> 16));
+        return;
+    }
+
+    /* 2B-CRX puts the same two registers at 0x009C0000 and 0x009C0004, one per
+     * dword on byte lane 0, instead of at 0x01C80000. */
+    if (s_variant == MODEL2B_CRX && addr >= 0x009C0000 && addr < 0x009C0008) {
+        uart_write((addr - 0x009C0000) >> 2, (uint8_t)val);
         return;
     }
 
@@ -836,6 +902,21 @@ void bus_write32(uint32_t addr, uint32_t val)
         return;
     }
 
+    /* CRX video board: see bus_read32. */
+    if (is_crx() && addr >= 0x11400000 && addr < 0x11410000) {
+        lumaram_write((addr - 0x11400000) >> 1, (uint8_t)val);
+        return;
+    }
+    if (is_crx() && addr >= 0x11000000 && addr < 0x11400000) {
+        /* Bank 0 at 0x11000000 and bank 1 at 0x11200000, each 1MB mirrored
+         * once - the same two memories tex0_write/tex1_write already serve at
+         * 0x12000000 on the original board. */
+        uint32_t off = (addr - 0x11000000) & 0xFFFFF;
+        if (addr < 0x11200000) tex0_write(off >> 2, val);
+        else                   tex1_write(off >> 2, val);
+        return;
+    }
+
     /* Luma RAM: 0x12800000-0x1281FFFF */
     if (addr >= 0x12800000 && addr < 0x12820000) {
         lumaram_write((addr - 0x12800000) >> 2, (uint8_t)val);
@@ -856,7 +937,7 @@ void bus_write16(uint32_t addr, uint16_t val)
         return;
     }
 
-    if (addr >= 0x00200000 && addr < 0x00220000) {
+    if (addr >= 0x00200000 && addr < PROGRAM_RAM_TOP) {
         mem_write16(s_program_ram, addr - 0x00200000, val);
         return;
     }
@@ -897,7 +978,7 @@ void bus_write8(uint32_t addr, uint8_t val)
         return;
     }
 
-    if (addr >= 0x00200000 && addr < 0x00220000) {
+    if (addr >= 0x00200000 && addr < PROGRAM_RAM_TOP) {
         s_program_ram[addr - 0x00200000] = val;
         return;
     }
