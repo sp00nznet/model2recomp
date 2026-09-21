@@ -507,9 +507,12 @@ BLOCKER = {
                 "68000; a permanently-ready transmitter is not enough.",
     "srallyc":  "Never reaches the first sample field.",
     "overrev":  "Bit-bangs the 93C46 serial EEPROM hard - 9,788 port A writes "
-                "in 300 fields - and does not accept what it reads back. The "
-                "device is modelled; its contents come up blank and these "
-                "games checksum them.",
+                "in 300 fields - and its read count is identical with no "
+                "EEPROM, a read-only one and a full one, so the loop does not "
+                "branch on what the device says.",
+    "skisuprg": "Drew a partial screen while port A of the 315-5649 wrongly "
+                "returned the cabinet inputs; blank now that it returns what "
+                "the hardware does. Was relying on the inaccuracy.",
 }
 
 BOARD_NOTE = {
