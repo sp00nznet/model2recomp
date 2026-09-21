@@ -179,6 +179,56 @@ static void unmapped_note(uint32_t addr, bool write)
     s_unmapped_n++;
 }
 
+/* MODEL2_HOTREADS=1 counts reads of hardware registers and prints the busiest
+ * at exit.
+ *
+ * A game that has stopped making progress is almost always sitting on one
+ * status register waiting for a bit that never changes, and the address is
+ * computed at run time so the lifted C does not name it. MODEL2_TRACE names the
+ * function; this names the register it is reading, which is the half that says
+ * what to implement. Sky Target's UART spin took a trace plus a read of the
+ * generated source to find; this would have said "0x01C80002, four million
+ * times" on its own.
+ *
+ * Work and program RAM are excluded - they are not what a game waits on, and
+ * counting them would bury the signal. */
+#define HOTREAD_SLOTS 512
+static struct { uint32_t addr; uint32_t hits; } s_hotread[HOTREAD_SLOTS];
+static int s_hotread_n = -1;
+
+static void hotread_note(uint32_t addr)
+{
+    if (s_hotread_n < 0) {
+        const char *e = getenv("MODEL2_HOTREADS");
+        s_hotread_n = (e && atoi(e)) ? 0 : -2;
+    }
+    if (s_hotread_n < 0) return;
+    addr &= ~3u;
+    for (int i = 0; i < s_hotread_n; i++)
+        if (s_hotread[i].addr == addr) { s_hotread[i].hits++; return; }
+    if (s_hotread_n >= HOTREAD_SLOTS) return;
+    s_hotread[s_hotread_n].addr = addr;
+    s_hotread[s_hotread_n].hits = 1;
+    s_hotread_n++;
+}
+
+void bus_report_hotreads(void)
+{
+    if (s_hotread_n <= 0) return;
+    /* Selection sort of the top 15; the table is small and this runs once. */
+    for (int i = 0; i < 15 && i < s_hotread_n; i++) {
+        int best = i;
+        for (int j = i + 1; j < s_hotread_n; j++)
+            if (s_hotread[j].hits > s_hotread[best].hits) best = j;
+        if (best != i) {
+            struct { uint32_t addr, hits; } t = { s_hotread[i].addr, s_hotread[i].hits };
+            s_hotread[i] = s_hotread[best];
+            s_hotread[best].addr = t.addr; s_hotread[best].hits = t.hits;
+        }
+        printf("[bus] hot read 0x%08X  x%u\n", s_hotread[i].addr, s_hotread[i].hits);
+    }
+}
+
 void bus_report_unmapped(void)
 {
     if (s_unmapped_n <= 0) return;
@@ -385,6 +435,9 @@ uint32_t bus_read32(uint32_t addr)
              | ((uint32_t)bus_read8(addr + 1) << 8)
              | ((uint32_t)bus_read8(addr + 2) << 16)
              | ((uint32_t)bus_read8(addr + 3) << 24);
+
+    if (addr >= 0x00800000 && addr < 0x02000000)
+        hotread_note(addr);
 
     /* Program ROM: 0x00000000-0x001FFFFF */
     if (addr < 0x00200000) {

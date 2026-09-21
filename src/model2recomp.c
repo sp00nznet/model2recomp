@@ -626,6 +626,7 @@ const uint8_t *model2recomp_get_framebuffer(void)
 void model2recomp_shutdown(void)
 {
     bus_report_unmapped();
+    bus_report_hotreads();
     if (!s_initialized) return;
 
     printf("[model2recomp] Shutting down...\n");

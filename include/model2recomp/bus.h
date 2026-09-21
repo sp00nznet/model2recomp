@@ -134,6 +134,10 @@ void bus_init(void);
 /* Print what MODEL2_UNMAPPED collected: every address the guest touched that
  * the map does not cover. Called at shutdown. */
 void bus_report_unmapped(void);
+
+/* Print what MODEL2_HOTREADS collected: the hardware registers the guest
+ * read most. A stalled game is usually sitting on one of them. */
+void bus_report_hotreads(void);
 void bus_shutdown(void);
 
 #ifdef __cplusplus
