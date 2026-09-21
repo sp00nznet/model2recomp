@@ -213,19 +213,29 @@ pixels are rasterised and composited - and the screen is still black, because
 every one of those pixels resolves to RGB 0.
 
 The colour path is palette entry -> one of 32 ramps per channel in
-colour-translate RAM, indexed by luma -> gamma. Dumping both games at field 900
-(`MODEL2_RAMDUMP`) says why:
+colour-translate RAM, indexed by luma -> gamma. Only **96** of that region's
+24,576 entries are ever read: MAME's `screen_update` indexes red at
+`0x0080/2 + n*0x100`, green at `0x4080/2 + n*0x100` and blue at
+`0x8080/2 + n*0x100`, for n in 0..31. Counting the whole region tells you
+nothing; counting those 96 is decisive.
 
-| | Palette entries written | Colour-translate entries written |
-|---|---|---|
-| Virtua Cop | 5,094 / 8,192 | **23,708 / 24,576** |
-| Virtua Cop 2 | 4,172 / 8,192 | **228 / 24,576** |
+Dumping both games at field 3000 (`MODEL2_RAMDUMP`):
 
-The palette is populated; the ramps are not. Every polygon indexes an empty ramp
-and comes out black. The region decodes identically for reads and writes and is
-at the same address on every variant (`0x01810000`, `model2_base_mem`), so this
-is not a memory-map fault - the game has not written them at this point, and the
-question is what it is waiting for before it does.
+| | Ramp entries the hardware reads |
+|---|---|
+| Virtua Cop | 31 of 32 per channel (entry 0 is legitimately black) |
+| Virtua Cop 2 | **0 of 32, on all three channels** |
+
+Virtua Cop 2 does write to the region - 228 entries, in three equal blocks of 76
+matching the three channel bases - but at offsets `0x30`-ish within each group
+of `0x100`, never at the `0x40` the hardware reads. So the ramps it needs stay
+zero and every polygon it draws indexes black.
+
+The region decodes the same as MAME's (a 16-bit map over
+`0x01810000`-`0x0181bfff`, one `u16` per offset, same on every variant), and
+Virtua Cop fills its ramps through that same decode - so this is not an address
+fault. What the game writes at `0x30` and what it is waiting for before it
+writes `0x40` is where this picks up.
 
 `MODEL2_POLYCOUNT` now prints the three numbers that tell these apart:
 `drawn3d=0` is the rasterizer, `copied=0` with `drawn3d>0` is the composite, and
