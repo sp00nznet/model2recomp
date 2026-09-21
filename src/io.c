@@ -320,6 +320,9 @@ static uint32_t s_ee_shift;      /* command bits received since CS rose */
 static int      s_ee_count;      /* how many of them */
 static int      s_ee_out_bits;   /* bits of a read still to clock out */
 static uint16_t s_ee_out;
+static int      s_ee_in_bits;    /* bits of a write still to clock in */
+static uint16_t s_ee_in;
+static uint8_t  s_ee_in_addr;
 
 void eeprom93c46_reset(void)
 {
@@ -329,6 +332,7 @@ void eeprom93c46_reset(void)
     s_ee_write_enable = false;
     s_ee_ctrlmode = false;
     s_ee_shift = 0; s_ee_count = 0; s_ee_out_bits = 0; s_ee_out = 0;
+    s_ee_in_bits = 0; s_ee_in = 0; s_ee_in_addr = 0;
 }
 
 /* One rising clock edge: take DI, and act once a whole command has arrived. */
@@ -338,6 +342,21 @@ static void eeprom93c46_clock_in(void)
         /* Mid-read: the next bit of the word, most significant first. */
         s_ee_out_bits--;
         s_ee_do = (s_ee_out >> s_ee_out_bits) & 1;
+        return;
+    }
+
+    if (s_ee_in_bits > 0) {
+        /* Mid-write: the sixteen data bits follow the command immediately. */
+        s_ee_in = (uint16_t)((s_ee_in << 1) | (s_ee_di ? 1u : 0u));
+        if (--s_ee_in_bits == 0) {
+            if (s_ee_write_enable) {
+                if (s_ee_in_addr == 0xFF)
+                    for (int i = 0; i < EE_WORDS; i++) s_ee[i] = s_ee_in;
+                else
+                    s_ee[s_ee_in_addr] = s_ee_in;
+            }
+            s_ee_do = true;                /* ready again */
+        }
         return;
     }
 
@@ -366,10 +385,19 @@ static void eeprom93c46_clock_in(void)
         else if ((addr & 0x30) == 0x00) s_ee_write_enable = false;
         else if ((addr & 0x30) == 0x20 && s_ee_write_enable)
             for (int i = 0; i < EE_WORDS; i++) s_ee[i] = 0xFFFF;   /* ERAL */
+        else if ((addr & 0x30) == 0x10) {                          /* WRAL */
+            s_ee_in_addr = 0xFF;      /* all words; see the write completion */
+            s_ee_in_bits = 16;
+            s_ee_in = 0;
+        }
         break;
-    case 1:                                   /* WRITE - data follows */
+    case 1:                                   /* WRITE: sixteen data bits follow */
+        s_ee_in_addr = (uint8_t)addr;
+        s_ee_in_bits = 16;
+        s_ee_in = 0;
+        break;
     case 3:                                   /* ERASE */
-        if (op == 3 && s_ee_write_enable) s_ee[addr] = 0xFFFF;
+        if (s_ee_write_enable) s_ee[addr] = 0xFFFF;
         break;
     }
     s_ee_shift = 0;
@@ -386,7 +414,8 @@ void eeprom93c46_port_a(uint8_t data)
     bool clk = (data & 0x80) != 0;
 
     if (!cs) {                 /* deselecting resets the command shifter */
-        s_ee_shift = 0; s_ee_count = 0; s_ee_out_bits = 0; s_ee_do = true;
+        s_ee_shift = 0; s_ee_count = 0; s_ee_out_bits = 0;
+        s_ee_in_bits = 0; s_ee_do = true;
     } else if (clk && !s_ee_clk) {
         eeprom93c46_clock_in();
     }
