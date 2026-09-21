@@ -36,6 +36,7 @@ Each is independently re-runnable and takes an optional list of sets.
 | `lift` | `program.bin` → C, via `tools/i960_lifter.py` | `corpus/<set>/recomp/` |
 | `build` | That C → one executable per set, on the shared launcher | `build_corpus/corpus/` |
 | `run` | Boots each headless, samples the screen, classifies | `corpus/<set>/shots/` |
+| `discover` | Runs a set, harvests the entry points it could not reach, re-lifts, repeats | `corpus/<set>/hints.txt` |
 | `report` | The table | `CORPUS.md` |
 
 ### The ROM layout comes from MAME, not from a hand-written table
@@ -107,6 +108,37 @@ The sweep runs with **no input** by default, because attract mode is what these
 games do *before* a credit — a coin is the one thing that ends the state being
 measured. `--input coin1,start1` surveys what happens past the title screen
 instead.
+
+## Iterating a set forward
+
+The stages are a loop, not a pipeline you run once. The one that moves a set is
+`discover`:
+
+```bash
+python tools/corpus.py discover vf2 --rounds 6 --frames 900 --run-timeout 60
+```
+
+Static analysis cannot see a jump target the game computes at run time, so
+`func_table` has nothing to dispatch to and the call silently does nothing. The
+runtime *names* those addresses every time it misses one, so `discover` runs the
+game, harvests them, re-lifts with them as entry hints, and goes round again -
+each round letting the game reach code that computes the next set of targets.
+Hints accumulate in `corpus/<set>/hints.txt`; they are a property of the game,
+not of one run.
+
+**It is not free, and the loop measures that.** Registering an address as an
+entry point *splits* the function containing it, and a harvested address is not
+always a function start - it can be a computed jump into the middle of one. Nine
+hints took Desert Tank from a running attract sequence to a static screen, and
+eleven took Virtua Cop from 2,654 colours on screen to 1,044. So each round is
+A/B'd against the one before it, and a round that makes a set worse is rolled
+back and the loop stops there.
+
+When `discover` stops finding anything and the set still does not draw, the next
+tool is `MODEL2_UNMAPPED=1` (is it reading a register we do not model?) and then
+`MODEL2_TRACE` (what function is it spinning in, and what does that function
+read?). That pair is what turned Sky Target from "hangs" into a one-line bus
+fix.
 
 ## What the sweep cannot tell you
 
