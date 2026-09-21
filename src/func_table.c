@@ -14,7 +14,22 @@
 #define TABLE_SIZE 8192  /* Power of 2, must be > number of functions */
 #define TABLE_MASK (TABLE_SIZE - 1)
 
-#define MAX_CALL_DEPTH 500
+/* The recursion guard, and it is a guard rather than a model of anything: the
+ * i960's own call depth is bounded by its stack, not by a counter here.
+ *
+ * 500 was too low, and not because games nest that deep. The lifter sometimes
+ * splits a routine into one-instruction fragments that tail-call each other,
+ * and a loop in that shape is recursion - so a fill loop of a few thousand
+ * iterations exhausts the counter and is abandoned part-way. Twenty of the
+ * thirty-five sets in the corpus were hitting this; Manx TT hit it 3,570 times
+ * in one run, and Virtua Cop 2's colour-ramp fill stopped after 228 of 24,576
+ * entries because of it.
+ *
+ * It is still host stack, so it is not free: 200,000 overflows a default 1 MB
+ * thread stack and kills the process before the first field. The corpus
+ * launcher links with a 256 MB stack reserve (CMakeLists) to give this room,
+ * and MODEL2_CALLDEPTH overrides the cap for anything that needs more. */
+#define MAX_CALL_DEPTH_DEFAULT 20000
 #define MAX_MISS_LOG   20
 
 unsigned long g_dispatches;
@@ -61,6 +76,16 @@ typedef struct {
 
 static table_entry_t s_table[TABLE_SIZE];
 static int s_call_depth = 0;
+
+static int func_table_max_depth(void)
+{
+    static int cap = -1;
+    if (cap < 0) {
+        const char *e = getenv("MODEL2_CALLDEPTH");
+        cap = (e && atoi(e) > 0) ? atoi(e) : MAX_CALL_DEPTH_DEFAULT;
+    }
+    return cap;
+}
 uint32_t g_cur_func = 0;   /* debug: MODEL2_WATCH */
 static int s_miss_count = 0;
 
@@ -147,9 +172,9 @@ bool func_table_call(uint32_t i960_addr)
         return false;
     }
 
-    if (s_call_depth >= MAX_CALL_DEPTH) {
+    if (s_call_depth >= func_table_max_depth()) {
         fprintf(stderr, "[func_table] ERROR: Max call depth (%d) exceeded at 0x%08X\n",
-                MAX_CALL_DEPTH, i960_addr);
+                func_table_max_depth(), i960_addr);
         return false;
     }
 

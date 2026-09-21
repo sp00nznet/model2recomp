@@ -98,6 +98,13 @@ if(MODEL2RECOMP_CORPUS_DIR)
             "${CMAKE_CURRENT_SOURCE_DIR}/examples/corpus/main.c")
         target_include_directories(corpus_${_set} PRIVATE "${_dir}/include")
         target_link_libraries(corpus_${_set} PRIVATE model2recomp SDL2::SDL2main)
+        # Lifted code sometimes expresses a loop as recursion - the lifter can
+        # split a routine into one-instruction fragments that tail-call each
+        # other - so the dispatch chain gets deep. Reserve (do not commit) a
+        # large stack; the default 1 MB is exhausted by a few thousand frames.
+        if(MSVC)
+            target_link_options(corpus_${_set} PRIVATE /STACK:268435456)
+        endif()
         if(MSVC)
             target_compile_options(corpus_${_set} PRIVATE /W0)
             target_compile_definitions(corpus_${_set} PRIVATE _CRT_SECURE_NO_WARNINGS)

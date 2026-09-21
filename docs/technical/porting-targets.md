@@ -202,44 +202,40 @@ else is fixed, because what they read back is not yet decrypted. That is a
 blocker in its own right and the corpus table now names it rather than lumping
 those titles in with "the coprocessor is missing".
 
-### Virtua Cop 2: geometry works, the colour path does not
+### The call-depth cap was strangling twenty of the thirty-five sets
 
-Worth writing down because it is the furthest any CRX title has got and the
-remaining fault is small and named.
+`func_table_call` refused to dispatch past 500 nested calls. That is a recursion
+guard, not a model of anything - the i960's own depth is bounded by its stack -
+and 500 turned out to be far too low, for a reason that has nothing to do with
+how deep these games nest.
 
-Once the display list is walked at the right time, Virtua Cop 2 renders. At
-field 800 it produces **753 polygons**, the engine sees 252,336, and 170,372
-pixels are rasterised and composited - and the screen is still black, because
-every one of those pixels resolves to RGB 0.
+The lifter sometimes splits a routine into **one-instruction fragments that
+tail-call each other**. Virtua Cop's colour-ramp generator is a single function
+with `goto` loops; Virtua Cop 2's equivalent is a chain of functions four bytes
+apart, each doing one instruction and calling the next. A loop in that shape is
+*recursion*, so a fill of a few thousand iterations exhausts the counter and is
+abandoned part-way through.
 
-The colour path is palette entry -> one of 32 ramps per channel in
-colour-translate RAM, indexed by luma -> gamma. Only **96** of that region's
-24,576 entries are ever read: MAME's `screen_update` indexes red at
-`0x0080/2 + n*0x100`, green at `0x4080/2 + n*0x100` and blue at
-`0x8080/2 + n*0x100`, for n in 0..31. Counting the whole region tells you
-nothing; counting those 96 is decisive.
+Twenty of the thirty-five sets were hitting it. Manx TT hit it 3,570 times in a
+single run; Top Skater 180, Rail Chase 2 168, Sega Ski Super G 39, Over Rev 33.
 
-Dumping both games at field 3000 (`MODEL2_RAMDUMP`):
+Virtua Cop 2 was the clearest case. Its ramp fill stopped after 228 of 24,576
+entries - two runs ending at `0x3F` and `0x13C`, where the hardware reads `0x40`
+and `0x140`, one and four entries short - and stayed at exactly 228 whether the
+run was 900 fields, 3,000 or 12,000. With the cap raised it finishes the fill
+and **reaches attract mode**: the warning screen, then the lock-on demo in
+colour.
 
-| | Ramp entries the hardware reads |
-|---|---|
-| Virtua Cop | 31 of 32 per channel (entry 0 is legitimately black) |
-| Virtua Cop 2 | **0 of 32, on all three channels** |
+The cap is now 20,000 by default and `MODEL2_CALLDEPTH` overrides it. It is
+still host stack and not free - 200,000 overflows a default 1 MB thread stack
+and kills the process before the first field - so the corpus launcher links with
+a 256 MB stack *reserve*. Raising the cap without that just moves the failure
+from a diagnostic to a crash.
 
-Virtua Cop 2 does write to the region - 228 entries, in three equal blocks of 76
-matching the three channel bases - but at offsets `0x30`-ish within each group
-of `0x100`, never at the `0x40` the hardware reads. So the ramps it needs stay
-zero and every polygon it draws indexes black.
-
-The region decodes the same as MAME's (a 16-bit map over
-`0x01810000`-`0x0181bfff`, one `u16` per offset, same on every variant), and
-Virtua Cop fills its ramps through that same decode - so this is not an address
-fault. What the game writes at `0x30` and what it is waiting for before it
-writes `0x40` is where this picks up.
-
-`MODEL2_POLYCOUNT` now prints the three numbers that tell these apart:
-`drawn3d=0` is the rasterizer, `copied=0` with `drawn3d>0` is the composite, and
-`copied>0` with `nonzero=0` is the colour path.
+The real fix is upstream: stop the lifter splitting functions into fragments, so
+a loop stays a loop. That is a bigger and riskier change, and this project's own
+notes record three previous attempts at function splitting that each regressed
+rendering badly. The cap is the cheap half.
 
 ### The SHARC is not what is stopping most 2B titles
 
