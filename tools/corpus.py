@@ -428,6 +428,12 @@ def stage_run(sets, args, st):
                      for i in range(len(samples) - 1)), default=0.0)
 
         booted = "[corpus] boot 0" in log and "not registered" not in log
+        # Read the hint count off the file rather than trusting what discover
+        # last wrote into the state: a rolled-back round changes the file, and
+        # a table that disagrees with the tree is worse than no table.
+        rec["hints"] = sum(
+            1 for line in open(hints_path(name), encoding="utf-8")
+            if line.startswith("entry ")) if os.path.exists(hints_path(name)) else 0
         rec.update(
             run=("timeout" if code is None else "ok" if code == 0 else "crash"),
             run_secs=round(time.time() - t0, 1),
@@ -467,7 +473,39 @@ STAGE_COLS = [
     ("boots",     "Boots",    lambda r: r.get("boots", "-")),
     ("renders",   "Renders",  lambda r: r.get("renders", "-")),
     ("motion",    "Motion",   lambda r: r.get("motion", "-")),
+    ("cat",       "Furthest", lambda r: r.get("cat", "-")),
 ]
+
+# What each verdict means, spelled out once rather than in every reader's head.
+LEGEND = [
+    ("`ATTRACT`", "drew a picture, and at least a tenth of it changed between "
+                  "samples - the attract sequence is running"),
+    ("`STATIC`", "drew a picture and stayed on it"),
+    ("`FLAT-FILL`", "lit every pixel but only one colour: a framebuffer cleared "
+                    "to a background with nothing drawn on it"),
+    ("`BOOTS-BLANK`", "reached the field boundary, drew nothing"),
+    ("`NO-FRAMES`", "never reached the first sample field before the timeout"),
+    ("`NO-BOOT`", "the reset vector did not dispatch"),
+]
+
+
+BOARD_NOTE = {
+    "Model 2":
+        "The original 1993 board — the one this library implements. These "
+        "results are the library's own.",
+    "2A-CRX":
+        "Same MB86233 coprocessor, same geometry engine and rasterizer; a "
+        "different I/O chip (Sega 315-5649 in place of the Model 1 dual-port "
+        "RAM) and a different program-RAM map. A memory-map job rather than a "
+        "DSP one, and the largest single win available: nine titles.",
+    "2B-CRX":
+        "Needs an ADSP-21062 SHARC for the math coprocessor. The geometry "
+        "engine and rasterizer are shared, which is why some of these still "
+        "put their tilemap screens up.",
+    "2C-CRX":
+        "Needs an MB86235 \"TGPx4\". Same story as 2B: shared rasterizer, "
+        "absent coprocessor.",
+}
 
 
 def stage_report(sets, args, st):
@@ -498,25 +536,39 @@ def stage_report(sets, args, st):
           "| Draws something | **%d** |" % count(lambda r: r.get("renders") == "yes"),
           "| Reaches attract (still changing at the last sample) | **%d** |"
           % count(lambda r: r.get("motion") == "advancing"),
-          ""]
+          "",
+          "Only the original 1993 board is implemented, so read the board "
+          "heading before the result: a CRX title that draws nothing is not a "
+          "lifter or renderer failure, it is a board this library does not "
+          "have yet. See [porting-targets.md](docs/technical/porting-targets.md).",
+          "",
+          "**Furthest** is how far the set got:", ""]
+    md += ["- %s — %s" % (k, v) for k, v in LEGEND]
+    md += ["",
+           "**Hints** counts the entry points `corpus.py discover` harvested "
+           "from the runtime's own dispatch misses: addresses the game computes "
+           "at run time, which static analysis cannot see.",
+           ""]
 
     hdr = "| Set | Game | Year | " + " | ".join(c[1] for c in STAGE_COLS) + \
-          " | Funcs | Notes |"
-    sep = "|" + "---|" * (len(STAGE_COLS) + 5)
+          " | Funcs | Hints | Notes |"
+    sep = "|" + "---|" * (len(STAGE_COLS) + 6)
     for board in order:
         group = [(n, r) for n, r in rows if r.get("board") == board]
         if not group:
             continue
-        md += ["## %s (%d)" % (board, len(group)), "", hdr, sep]
+        md += ["## %s (%d)" % (board, len(group)), "", BOARD_NOTE.get(board, ""),
+               "", hdr, sep]
         for n, r in sorted(group, key=lambda x: (x[1].get("year", 0), x[0])):
             note = (r.get("build_error") or r.get("lift_error") or
                     r.get("run_error") or r.get("extract_error") or "")
             if not r.get("mame_working", True):
                 note = ("MAME cannot run this set either. " + note).strip()
-            md.append("| `%s` | %s | %s | %s | %d | %s |" % (
+            md.append("| `%s` | %s | %s | %s | %d | %d | %s |" % (
                 n, r.get("desc", n), r.get("year", ""),
                 " | ".join(c[2](r) for c in STAGE_COLS),
-                r.get("funcs", 0), note.replace("|", "\\|")[:120]))
+                r.get("funcs", 0), r.get("hints", 0),
+                note.replace("|", "\\|")[:120]))
         md.append("")
 
     out = os.path.join(ROOT, "CORPUS.md")
@@ -531,6 +583,27 @@ def hints_path(name):
 
 
 MISS_RE = re.compile(r"no function at 0x([0-9A-Fa-f]{8})")
+
+# How far a set got, as a number, so two runs can be compared. Colours before
+# frames: a picture with more in it beats one with more samples of nothing.
+CAT_RANK_NAME = ["NO-BOOT", "NO-FRAMES", "BOOTS-BLANK", "FLAT-FILL",
+                 "STATIC", "ATTRACT"]
+CAT_RANK = {c: i for i, c in enumerate(CAT_RANK_NAME)}
+
+
+def quality(rec):
+    return (CAT_RANK.get(rec.get("cat"), 0), rec.get("colours", 0),
+            rec.get("frames", 0))
+
+
+def revert(path, contents):
+    """Put a hints file back the way it was before a round that cost more than
+    it bought."""
+    if contents:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(contents)
+    elif os.path.exists(path):
+        os.remove(path)
 
 HINTS_HEADER = """\
 # Entry points %s reaches at run time, harvested from the runtime's dispatch
@@ -555,6 +628,14 @@ def stage_discover(sets, args, st):
 
     Hints accumulate in corpus/<set>/hints.txt. They are a property of the
     game, not of one run.
+
+    A round that makes things worse is rolled back. Registering an address as
+    an entry point *splits* the function containing it, and a harvested address
+    is not always a function start - it can be a computed jump into the middle
+    of one, or the tail of a garbage dispatch. Desert Tank was rendering its
+    attract sequence, took nine harvested entries, and dropped to a static
+    screen. So each round is measured, and hints that cost more than they buy
+    do not survive it.
     """
     for name in sets:
         rec = st.setdefault(name, {})
@@ -569,8 +650,9 @@ def stage_discover(sets, args, st):
                 if len(bits) == 2 and bits[0] == "entry":
                     known.add(bits[1].upper())
 
+        st = stage_run([name], args, st)
+        best = quality(st[name])
         for rnd in range(1, args.rounds + 1):
-            st = stage_run([name], args, st)
             log = os.path.join(set_dir(name), "run.log")
             found = set()
             try:
@@ -586,7 +668,8 @@ def stage_discover(sets, args, st):
                    "y" if len(fresh) == 1 else "ies"))
             if not fresh:
                 break
-            known |= set(fresh)
+
+            before = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
             with open(path, "a", encoding="utf-8") as f:
                 if f.tell() == 0:
                     f.write(HINTS_HEADER % name)
@@ -595,8 +678,24 @@ def stage_discover(sets, args, st):
             st = stage_lift([name], args, st)
             st = stage_build([name], args, st)
             if st[name].get("build") != "ok":
-                print("      build failed with the new entries; stopping")
+                print("      build failed with the new entries; rolling back")
+                revert(path, before)
+                st = stage_lift([name], args, st)
+                st = stage_build([name], args, st)
                 break
+
+            st = stage_run([name], args, st)
+            now = quality(st[name])
+            if now < best:
+                print("      round %d made it worse (%s -> %s); rolling back" %
+                      (rnd, CAT_RANK_NAME[best[0]], CAT_RANK_NAME[now[0]]))
+                revert(path, before)
+                st = stage_lift([name], args, st)
+                st = stage_build([name], args, st)
+                st = stage_run([name], args, st)
+                break
+            best = now
+            known |= set(fresh)
         rec["hints"] = len(known)
     return st
 

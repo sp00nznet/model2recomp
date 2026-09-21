@@ -125,6 +125,36 @@ core.
 
 MB86235. `MACHINE_NOT_WORKING` in MAME.
 
+## What the sweep actually found
+
+`python tools/corpus.py all` runs every set through the whole pipeline and
+writes [CORPUS.md](../../CORPUS.md). The numbers below are from that run, not
+from reading MAME's driver, and they moved two things in this page from
+"expected" to "measured".
+
+**Desert Tank** is the third original-board title and nobody had tried it. It
+boots on the generic launcher with no title-specific code and renders its
+attract sequence - and MAME marks it `MACHINE_NOT_WORKING`.
+
+**The CRX boards are not a wall.** The geometry engine and rasterizer are
+common to all four boards, and it shows: *Gunblade NY* (2B) draws its warning
+screen and title logo, *Manx TT* (2A) draws its motion-slider safety screen,
+*Sonic Championship* (2B) gets a picture up. What is missing on those boards is
+the math coprocessor, so what they cannot do is 3D - the tilemap and text paths
+work today.
+
+**Most sets stop for a reason the sweep can name.** Every one of the 35 sets on
+hand lifts, compiles and boots. Of those that then draw nothing, the common
+pattern is the runtime's own `no function at 0x...` - an entry point the game
+computes and static analysis cannot see. `corpus.py discover` harvests those and
+feeds them back, which is what moved Manx TT and Sonic Championship off blank.
+
+It is not free: registering an address as an entry point splits the function
+containing it, and a harvested address is not always a function start. Nine
+hints took Desert Tank from a running attract sequence to a static screen, and
+eleven took Virtua Cop from 2,654 colours on screen to 1,044. Discovery now
+measures each round and rolls back one that costs more than it buys.
+
 ## Suggested order
 
 1. **Daytona USA.** Same board, smaller program, one well-understood gap. It
