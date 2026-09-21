@@ -131,6 +131,7 @@ def stage_catalog(sets, args, st):
             desc=spec["desc"], year=spec["year"], board=spec["board"],
             maker=spec["maker"], parent=spec["parent"],
             mame_working=spec["mame_working"],
+            protected=spec.get("protected", False),
             program_kb=spec["regions"].get("maincpu", {}).get("size", 0) // 1024,
             copro_data=bool(spec["regions"].get("copro_data", {}).get("loads")),
             have_rom=bool(zp), rom_path=zp or "")
@@ -540,11 +541,16 @@ def stage_report(sets, args, st):
           "| Draws something | **%d** |" % count(lambda r: r.get("renders") == "yes"),
           "| Reaches attract (still changing at the last sample) | **%d** |"
           % count(lambda r: r.get("motion") == "advancing"),
+          "| Blocked on a Sega crypto device regardless of the board | **%d** |"
+          % count(lambda r: r.get("protected")),
           "",
-          "Only the original 1993 board is implemented, so read the board "
-          "heading before the result: a CRX title that draws nothing is not a "
-          "lifter or renderer failure, it is a board this library does not "
-          "have yet. See [porting-targets.md](docs/technical/porting-targets.md).",
+          "Read the board heading before the result. The memory map is now "
+          "variant-aware, so the CRX boards get their own program RAM, I/O "
+          "chip and texture windows - but 2B and 2C still have no math "
+          "coprocessor, and without one no polygon can be transformed. A CRX "
+          "title that draws only tilemaps and text is at the ceiling of what "
+          "this library can currently give it, not failing. See "
+          "[porting-targets.md](docs/technical/porting-targets.md).",
           "",
           "**Furthest** is how far the set got:", ""]
     md += ["- %s — %s" % (k, v) for k, v in LEGEND]
@@ -566,6 +572,9 @@ def stage_report(sets, args, st):
         for n, r in sorted(group, key=lambda x: (x[1].get("year", 0), x[0])):
             note = (r.get("build_error") or r.get("lift_error") or
                     r.get("run_error") or r.get("extract_error") or "")
+            if r.get("protected"):
+                note = ("Behind a Sega 315-5881/317-0229 cryptographic device; "
+                        "the data it streams is not decrypted here. " + note).strip()
             if not r.get("mame_working", True):
                 note = ("MAME cannot run this set either. " + note).strip()
             md.append("| `%s` | %s | %s | %s | %d | %d | %s |" % (

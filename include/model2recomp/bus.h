@@ -130,6 +130,10 @@ void bus_set_vblank_callback(bus_vblank_callback_t cb);
 void bus_set_variant(model2_variant_t variant);
 
 void bus_init(void);
+
+/* Print what MODEL2_UNMAPPED collected: every address the guest touched that
+ * the map does not cover. Called at shutdown. */
+void bus_report_unmapped(void);
 void bus_shutdown(void);
 
 #ifdef __cplusplus

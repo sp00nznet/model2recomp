@@ -19,8 +19,9 @@ records what happened on a machine that had the sets.
 | Boots | **35** |
 | Draws something | **7** |
 | Reaches attract (still changing at the last sample) | **3** |
+| Blocked on a Sega crypto device regardless of the board | **5** |
 
-Only the original 1993 board is implemented, so read the board heading before the result: a CRX title that draws nothing is not a lifter or renderer failure, it is a board this library does not have yet. See [porting-targets.md](docs/technical/porting-targets.md).
+Read the board heading before the result. The memory map is now variant-aware, so the CRX boards get their own program RAM, I/O chip and texture windows - but 2B and 2C still have no math coprocessor, and without one no polygon can be transformed. A CRX title that draws only tilemaps and text is at the ceiling of what this library can currently give it, not failing. See [porting-targets.md](docs/technical/porting-targets.md).
 
 **Furthest** is how far the set got:
 
@@ -56,7 +57,7 @@ Same MB86233 coprocessor, same geometry engine and rasterizer; a different I/O c
 | `vcop2` | Virtua Cop 2 | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11518 | 7 |  |
 | `airwlkrs` | Air Walkers | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 7558 | 1 | MAME cannot run this set either. |
 | `motoraid` | Motor Raid - Twin | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 4327 | 3 |  |
-| `dynamcop` | Dynamite Cop (Export, Model 2A) | 1998 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 17877 | 0 | MAME cannot run this set either. |
+| `dynamcop` | Dynamite Cop (Export, Model 2A) | 1998 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 17877 | 0 | MAME cannot run this set either. Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decryp |
 | `hpyagu98` | Hanguk Pro Yagu 98 | 1998 | no | no-rom | no-rom | no-code | - | - | - | - | 0 | 0 | MAME cannot run this set either. |
 
 ## 2B-CRX (15)
@@ -71,15 +72,15 @@ Needs an ADSP-21062 SHARC for the math coprocessor. The geometry engine and rast
 | `gunblade` | Gunblade NY (Revision A) | 1995 | yes | ok | ok | ok | yes | yes | advancing | ATTRACT | 5813 | 5 |  |
 | `indy500` | INDY 500 Twin (Revision A, Newer) | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 12176 | 2 | MAME cannot run this set either. |
 | `von` | Cyber Troopers Virtual-On - Twin (Export) | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11925 | 2 | MAME cannot run this set either. |
-| `doa` | Dead or Alive (Model 2B, Revision C) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 8054 | 4 |  |
+| `doa` | Dead or Alive (Model 2B, Revision C) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 8054 | 4 | Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decrypted here. |
 | `dynabb` | Dynamite Baseball | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 17676 | 0 | MAME cannot run this set either. |
 | `lastbrnx` | Last Bronx (Export, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11772 | 2 | MAME cannot run this set either. |
 | `powsled` | Power Sled (Slave, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 21128 | 4 | MAME cannot run this set either. |
 | `schamp` | Sonic Championship (USA) | 1996 | yes | ok | ok | ok | yes | yes | twitching | STATIC | 8162 | 12 | MAME cannot run this set either. |
-| `sgt24h` | Super GT 24h | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 14371 | 1 | MAME cannot run this set either. |
+| `sgt24h` | Super GT 24h | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 14371 | 1 | MAME cannot run this set either. Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decryp |
 | `dynabb97` | Dynamite Baseball 97 (Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 5203 | 0 | MAME cannot run this set either. |
-| `zerogun` | Zero Gunner (Export, Model 2B) | 1997 | yes | ok | ok | ok | yes | no | blank | NO-FRAMES | 6992 | 11 |  |
-| `pltkids` | Pilot Kids (Model 2B, Revision A) | 1998 | yes | ok | ok | ok | yes | no | blank | NO-FRAMES | 16150 | 1 |  |
+| `zerogun` | Zero Gunner (Export, Model 2B) | 1997 | yes | ok | ok | ok | yes | no | blank | NO-FRAMES | 6992 | 11 | Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decrypted here. |
+| `pltkids` | Pilot Kids (Model 2B, Revision A) | 1998 | yes | ok | ok | ok | yes | no | blank | NO-FRAMES | 16150 | 1 | Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decrypted here. |
 
 ## 2C-CRX (9)
 

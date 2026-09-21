@@ -108,10 +108,19 @@ def parse_source(path):
             # reference behaviour to compare a port against, which is worth
             # knowing before spending a week on one.
             "mame_working": True,
+            "protected": False,
         }
     for m in re.finditer(r"^GAMEL?\(.*?,\s*(\w+)\s*,.*$", text, re.M):
-        if "MACHINE_NOT_WORKING" in m.group(0):
+        line = m.group(0)
+        if "MACHINE_NOT_WORKING" in line:
             meta.setdefault(m.group(1), {}).update(mame_working=False)
+        # Sets whose data is streamed through a Sega cryptographic device (the
+        # 315-5881, or the 317-0229 on Dead or Alive). Nothing downstream of
+        # that chip is meaningful until it is decrypted, so the title cannot
+        # draw however complete the board is - it is a blocker in its own
+        # right and worth separating from "the coprocessor is missing".
+        if re.search(r"5881|0229|init_(doa|zerogun|pltkids|sgt24h)", line):
+            meta.setdefault(m.group(1), {}).update(protected=True)
 
     # --- ROM_START blocks -----------------------------------------------------
     sets = {}

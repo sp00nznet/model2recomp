@@ -139,6 +139,55 @@ static inline void mem_write32(uint8_t *base, uint32_t offset, uint32_t val)
 }
 
 
+
+/* MODEL2_UNMAPPED=1 reports every address the guest touches that the map does
+ * not cover, each one once, with a count of how often at exit.
+ *
+ * This is the memory-side twin of func_table's "no function at 0x..." - the
+ * other way a recompiled game sits doing nothing for a reason nothing tells
+ * you about. A game polling an unmapped status register reads the same zero
+ * forever, and from the outside that is indistinguishable from a hang. Across
+ * a thirty-title corpus it is the difference between "this one is stuck" and
+ * "this one wants a register we have not modelled".
+ */
+#define UNMAPPED_SLOTS 256
+static struct { uint32_t addr; uint32_t reads, writes; } s_unmapped[UNMAPPED_SLOTS];
+static int s_unmapped_n = -1;
+
+static void unmapped_note(uint32_t addr, bool write)
+{
+    if (s_unmapped_n < 0) {
+        const char *e = getenv("MODEL2_UNMAPPED");
+        s_unmapped_n = (e && atoi(e)) ? 0 : -2;
+    }
+    if (s_unmapped_n < 0) return;
+
+    /* Round to the dword: a register polled with byte, half and word loads is
+     * one register, not three findings. */
+    addr &= ~3u;
+    for (int i = 0; i < s_unmapped_n; i++) {
+        if (s_unmapped[i].addr == addr) {
+            if (write) s_unmapped[i].writes++; else s_unmapped[i].reads++;
+            return;
+        }
+    }
+    if (s_unmapped_n >= UNMAPPED_SLOTS) return;
+    s_unmapped[s_unmapped_n].addr = addr;
+    s_unmapped[s_unmapped_n].reads = write ? 0 : 1;
+    s_unmapped[s_unmapped_n].writes = write ? 1 : 0;
+    printf("[bus] unmapped %s 0x%08X\n", write ? "write" : "read", addr);
+    s_unmapped_n++;
+}
+
+void bus_report_unmapped(void)
+{
+    if (s_unmapped_n <= 0) return;
+    printf("[bus] unmapped addresses touched: %d\n", s_unmapped_n);
+    for (int i = 0; i < s_unmapped_n; i++)
+        printf("    0x%08X  r=%u w=%u\n", s_unmapped[i].addr,
+               s_unmapped[i].reads, s_unmapped[i].writes);
+}
+
 /* ---- Bus read ---- */
 
 /* ---- Link (comm) board ----

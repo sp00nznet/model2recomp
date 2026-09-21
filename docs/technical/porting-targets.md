@@ -185,6 +185,23 @@ That is a fault on the **original** board too. Virtua Cop and Daytona simply
 never read it that way, so one game could not have found it and two did not.
 It is the clearest argument for the sweep there is.
 
+### What is left, after the board work
+
+Two things the sweep can now say that it could not before.
+
+**The CRX memory map is complete for the titles that get that far.**
+`MODEL2_UNMAPPED=1` reports every address the guest touches that the map does
+not cover. Virtua Cop, Sky Target and Motor Raid touch none. So a 2A title that
+still draws nothing is not waiting on a register this library lacks - the
+remaining faults are in the coprocessor, in game logic, or in the lift.
+
+**Six sets are behind a Sega cryptographic device** - the 315-5881, or the
+317-0229 on Dead or Alive - and stream their data through it. `doa`,
+`dynamcop`, `pltkids`, `sgt24h`, `zerogun` and `powsled` cannot draw whatever
+else is fixed, because what they read back is not yet decrypted. That is a
+blocker in its own right and the corpus table now names it rather than lumping
+those titles in with "the coprocessor is missing".
+
 ## Suggested order
 
 1. **Daytona USA.** Same board, smaller program, one well-understood gap. It

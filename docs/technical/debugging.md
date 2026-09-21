@@ -12,6 +12,7 @@ environment variables and one technique that answers most questions.
 | `MODEL2_SCREENSHOT=path` | Write the final frame as a binary PPM when the frame limit is reached |
 | `MODEL2_SHOT_EVERY=N` | With `MODEL2_SCREENSHOT` set, also write `path.<field>.ppm` every N fields |
 | `MODEL2_INPUT=a,b,...` | Drive buttons for a headless run — `coin1`, `coin2`, `start1`, `start2`, `service`, `fire`, `reload`, `test`. Each is **pulsed** (6 fields down, 54 up, staggered), because coins and start are edge triggered and a held button gives one edge and then nothing. `test` is a switch and is held. |
+| `MODEL2_UNMAPPED=1` | Report every address the guest touches that the memory map does not cover - each one once as it happens, and a count at exit. The memory-side twin of `func_table`'s "no function at 0x...": a game polling an unmapped status register reads the same zero forever, and from the outside that is indistinguishable from a hang. |
 | `MODEL2_POLYCOUNT=N` | Every N fields, print how many polygons the geometry engine produced. Zero means the game is not submitting a display list — a different problem from one that draws nothing. |
 | `MODEL2_WATCH=0xADDR` | Print every 32-bit write to that address, with the value, the guest function doing it, and FP/SP. A memory watchpoint, and the fastest way to find who corrupted something. |
 | `MODEL2_IRQMODE=0\|1\|2` | How the interrupt handler is entered. See **The interrupt frame** below. |
