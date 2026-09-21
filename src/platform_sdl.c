@@ -47,9 +47,16 @@ bool platform_init(const char *title, int width, int height, int scale)
         return false;
     }
 
+    /*
+     * No SDL_RENDERER_ACCELERATED here, deliberately. SDL already tries the
+     * accelerated drivers first when no flag demands one, so asking for it
+     * buys nothing on a desktop - and under SDL_VIDEODRIVER=dummy, which is
+     * how the corpus sweep boots every game without a window, it is the
+     * difference between a software renderer and SDL_CreateRenderer failing
+     * outright. Presentation is not where a Model 2 port spends its time.
+     */
     s_renderer = SDL_CreateRenderer(s_window, -1,
-        SDL_RENDERER_ACCELERATED
-        | (platform_fast_mode() ? 0u : (uint32_t)SDL_RENDERER_PRESENTVSYNC));
+        platform_fast_mode() ? 0u : (uint32_t)SDL_RENDERER_PRESENTVSYNC);
     if (!s_renderer) {
         fprintf(stderr, "[platform] Renderer creation failed: %s\n", SDL_GetError());
         return false;

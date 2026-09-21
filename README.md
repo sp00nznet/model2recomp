@@ -250,6 +250,9 @@ model2recomp/
 │   ├── io.c, timer.c, i960.c, func_table.c, eeprom.c, sound.c
 │   └── platform_sdl.c
 ├── examples/minimal/         Smallest program that calls the API
+├── examples/corpus/          Generic launcher, one for every set in the sweep
+├── tools/                    i960 disassembler and lifter, ROM set reader,
+│                             and the corpus sweep
 ├── tests/                    Standalone subsystem harnesses
 ├── docs/                     Getting started + technical deep dives
 └── ref/                      Local scratch for MAME sources (git-ignored,
@@ -277,22 +280,51 @@ model2recomp/
   screenshots, and how to find out why guest code never runs.
 - **[Porting Targets](docs/technical/porting-targets.md)** — which Model 2
   games are reachable from here, and what each one still needs.
+- **[The Corpus Sweep](docs/technical/corpus.md)** — running every Model 2 set
+  through the whole pipeline at once, and how the result is measured.
 
 ## Games That Work Well As Targets
 
-Original Model 2 titles, since that is the variant implemented:
+The original 1993 board is the variant implemented, and MAME's driver puts
+exactly **three** titles on it. That is the whole shortlist:
 
-| Game | Year | Why it is a reasonable target |
+| Game | Year | Where it is |
 |---|---|---|
-| **Virtua Cop** | 1994 | The reference title — this library was built against it |
-| **Daytona USA** | 1993 | **The obvious next one.** Same board, half the program ROM, and exactly one gap: it fills the coprocessor's data ROM socket, which Virtua Cop leaves empty |
-| **Virtua Fighter 2** | 1994 | Same board; character animation is CPU-side, so it is mostly a lifter problem |
+| **Virtua Cop** | 1994 | The reference title — this library was built against it. Renders attract mode. |
+| **Daytona USA** | 1993 | Boots, draws, takes a credit; stops on a coprocessor handshake before the 3D. |
+| **Desert Tank** | 1994 | Boots and renders its attract sequence on the generic launcher, with no title-specific code at all. |
 
-2A-CRX is closer than it looks — it runs the *same* MB86233 coprocessor, and
-differs in its I/O chip and program-RAM map. 2B and 2C need a SHARC and an
-MB86235 respectively, which are separate DSP projects.
+Everything else is a CRX board. 2A-CRX is closer than it looks — it runs the
+*same* MB86233 coprocessor and differs in its I/O chip and program-RAM map, so
+it is a memory-map job rather than a DSP one, and it would unlock nine titles
+including *Virtua Fighter 2*, *Sega Rally* and *Virtua Cop 2*. 2B and 2C need an
+ADSP-21062 SHARC and an MB86235 respectively, which are separate DSP projects.
 **[docs/technical/porting-targets.md](docs/technical/porting-targets.md)** works
 through every title and what each one needs.
+
+## The Corpus Sweep
+
+There are only about thirty Model 2 titles, which is few enough to stop
+treating a port as a bespoke project and run the whole library as a corpus
+instead:
+
+```bash
+python tools/corpus.py all
+```
+
+That reads every `ROM_START` out of MAME's driver, builds each set's region
+images, lifts its i960 program to C, builds it against this library on a shared
+launcher, boots it headless and writes [CORPUS.md](CORPUS.md) — one row per
+title, from "do we have the ROM" through to "does it reach attract mode".
+
+One game cannot exercise a board: pointing this at a second title turned up
+eight bugs in shared code that *Virtua Cop* never tripped. Thirty titles is
+thirty more chances, and the sweep is what makes running them cheap.
+**[docs/technical/corpus.md](docs/technical/corpus.md)** explains how it decides
+what it saw.
+
+Nothing ROM-derived is committed — the corpus directory is local scratch, and
+the table records what happened on a machine that had the sets.
 
 ## Projects Using This Library
 

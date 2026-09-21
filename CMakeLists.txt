@@ -71,3 +71,42 @@ if(MODEL2RECOMP_BUILD_TESTS)
         SDL2::SDL2main
     )
 endif()
+
+# --- Corpus sweep -------------------------------------------------------------
+#
+# Point MODEL2RECOMP_CORPUS_DIR at a tree of lifted sets (tools/corpus.py builds
+# it) and every set becomes a corpus_<set> executable sharing examples/corpus's
+# generic launcher. This is how the whole library gets swept in one run instead
+# of one hand-written game project per title.
+#
+# The lifted C is derived from a ROM and is never committed or distributed; the
+# corpus directory is local scratch.
+set(MODEL2RECOMP_CORPUS_DIR "" CACHE PATH "Tree of lifted Model 2 sets to build")
+if(MODEL2RECOMP_CORPUS_DIR)
+    file(GLOB _corpus_sets RELATIVE "${MODEL2RECOMP_CORPUS_DIR}"
+         "${MODEL2RECOMP_CORPUS_DIR}/*")
+    foreach(_set ${_corpus_sets})
+        set(_dir "${MODEL2RECOMP_CORPUS_DIR}/${_set}")
+        if(NOT EXISTS "${_dir}/recomp/game_register.c")
+            continue()
+        endif()
+        # CONFIGURE_DEPENDS: a re-lift can emit a different number of files, and
+        # a stale glob links declarations with no bodies behind them.
+        file(GLOB _src CONFIGURE_DEPENDS "${_dir}/recomp/game_code_*.c")
+        add_executable(corpus_${_set}
+            "${_dir}/recomp/game_register.c" ${_src}
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/corpus/main.c")
+        target_include_directories(corpus_${_set} PRIVATE "${_dir}/include")
+        target_link_libraries(corpus_${_set} PRIVATE model2recomp SDL2::SDL2main)
+        if(MSVC)
+            target_compile_options(corpus_${_set} PRIVATE /W0)
+            target_compile_definitions(corpus_${_set} PRIVATE _CRT_SECURE_NO_WARNINGS)
+        else()
+            target_compile_options(corpus_${_set} PRIVATE -w)
+        endif()
+        set_target_properties(corpus_${_set} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/corpus"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/corpus"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/corpus")
+    endforeach()
+endif()

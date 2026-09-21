@@ -361,6 +361,20 @@ static inline uint32_t op_mov(uint32_t src)
  * REG mode bits pick which, so the lifter resolves that statically and calls
  * these to reinterpret the bits. */
 
+/* divr / divrl.
+ *
+ * A function rather than a bare `a / b`, and that is the whole point of it.
+ * The i960's real divide faults at run time on a zero divisor and produces a
+ * NaN; two of the Model 2 sets contain a literal `0.0 / 0.0` in their program
+ * ROM, which lifted straight through is a constant expression - and a constant
+ * division by zero is a *compile* error (MSVC C2124), so those two sets built
+ * no executable at all. Passing the operands as arguments makes them values
+ * instead of literals, and the division happens where the hardware does it. */
+static inline double op_divr(double num, double den)
+{
+    return num / den;
+}
+
 static inline double i960_u2f(uint32_t v)
 {
     float f;

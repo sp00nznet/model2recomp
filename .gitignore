@@ -24,3 +24,8 @@ AGENTS.md
 # Captures
 *.ppm
 __pycache__/
+
+# Corpus sweep scratch: lifted ROM-derived code, region images and captures.
+# Anchored: examples/corpus/ is the sweep's launcher and is committed.
+/corpus/
+/build_corpus/

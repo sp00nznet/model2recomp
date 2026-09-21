@@ -678,9 +678,16 @@ class I960Lifter:
                 lr = (opcode == 0x79)
                 a = f_src(src1_reg, m1, lr)
                 b = f_src(src2_reg, m2, lr)
-                op, mnem = {0x0B: ('/', 'div'), 0x0C: ('*', 'mul'),
-                            0x0D: ('-', 'sub'), 0x0F: ('+', 'add')}[ext]
-                lines.append(f_dst(f'{b} {op} {a}', lr) + f' /* {mnem}r{"l" if lr else ""} */')
+                mnem = {0x0B: 'div', 0x0C: 'mul', 0x0D: 'sub', 0x0F: 'add'}[ext]
+                if ext == 0x0B:
+                    # Through op_divr, not a bare '/': a literal 0.0 / 0.0 in
+                    # the ROM is a runtime NaN on the hardware but a compile
+                    # error in C. See include/model2recomp/i960_ops.h.
+                    expr = f'op_divr({b}, {a})'
+                else:
+                    op = {0x0C: '*', 0x0D: '-', 0x0F: '+'}[ext]
+                    expr = f'{b} {op} {a}'
+                lines.append(f_dst(expr, lr) + f' /* {mnem}r{"l" if lr else ""} */')
 
             else:
                 lines.append(f'/* TODO: REG opcode=(0x{opcode:02X}, 0x{ext:X}) word=0x{word:08X} */')
@@ -921,8 +928,15 @@ def interrupt_handlers(data, max_size, data_rom=None):
     return handlers
 
 
-def discover_functions(data, max_size, data_rom=None):
-    """Find all function entry points."""
+def discover_functions(data, max_size, data_rom=None, hints=None):
+    """Find all function entry points.
+
+    ``hints`` are addresses a previous *run* of the game proved it jumps to -
+    harvested from the runtime's "no function at 0x..." misses by
+    tools/corpus.py. Static analysis cannot see a target the game computes at
+    run time, so without them the dispatch misses, the call silently does
+    nothing, and the game sits in a loop calling an address that is not there.
+    """
     from i960_disasm import disasm_one
     calls = set()
     post_ret = set()
@@ -1051,6 +1065,11 @@ def discover_functions(data, max_size, data_rom=None):
     candidates = (calls | post_ret | jump_targets | func_ptrs |
                   interrupt_handlers(data, max_size, data_rom) |
                   reinit_entries(data, max_size))
+    # A hinted address was observed being jumped to by the running game, which
+    # is stronger evidence than anything static analysis can offer. Union it in
+    # and, below, put it back if sifting drops it.
+    hinted = {a for a in (hints or ()) if a < max_size}
+    candidates |= hinted
 
     def sift(cands):
         """Drop candidates that point at padding rather than code."""
@@ -1062,7 +1081,7 @@ def discover_functions(data, max_size, data_rom=None):
                     out.append(addr)
         return out
 
-    valid = sift(candidates)
+    valid = sorted(set(sift(candidates)) | hinted)
 
     # ...but a branch that leaves the function it sits in is a tail call, not a
     # jump to a label. The lifter emits one as a dispatch through the function
@@ -1091,7 +1110,7 @@ def discover_functions(data, max_size, data_rom=None):
         if restored <= candidates:
             break
         candidates |= restored
-        valid = sift(candidates)
+        valid = sorted(set(sift(candidates)) | hinted)
     return valid
 
 
@@ -1140,14 +1159,27 @@ def split_bank_image(data, prog_end):
 
 def main():
     if len(sys.argv) < 4:
-        print(f"Usage: {sys.argv[0]} <program.bin> <output_dir> <prefix>")
+        print(f"Usage: {sys.argv[0]} <program.bin> <output_dir> <prefix> [--hints FILE]")
         print("  prefix names the game: 'vcop' emits vcop_XXXXXXXX() into")
         print("  vcop_code_NNN.c and vcop_register_all(), and includes \"vcop/functions.h\".")
+        print("  --hints FILE reads 'entry <hex>' lines: addresses a previous run")
+        print("  of the game was seen jumping to, which static analysis missed.")
         sys.exit(1)
 
     prog_path = sys.argv[1]
     output_dir = sys.argv[2]
     prefix = sys.argv[3]
+
+    hints = []
+    if "--hints" in sys.argv:
+        hint_path = sys.argv[sys.argv.index("--hints") + 1]
+        if os.path.exists(hint_path):
+            with open(hint_path) as hf:
+                for line in hf:
+                    line = line.split("#")[0].split()
+                    if len(line) == 2 and line[0] == "entry":
+                        hints.append(int(line[1], 16))
+        print(f"Hints: {len(hints)} entry point(s) from {hint_path}")
     guard = prefix.upper()
     os.makedirs(output_dir, exist_ok=True)
     # Stale output from a run that produced more files is still globbed by
@@ -1186,7 +1218,7 @@ def main():
 
     # Discover functions
     print('Discovering functions...')
-    func_addrs = discover_functions(data, prog_end, data_rom)
+    func_addrs = discover_functions(data, prog_end, data_rom, hints)
     # Add entry point
     if ip not in func_addrs:
         func_addrs.append(ip)
