@@ -17,8 +17,8 @@ records what happened on a machine that had the sets.
 | Program lifts to C | **35** |
 | That C builds | **35** |
 | Boots | **35** |
-| Draws something | **9** |
-| Reaches attract (still changing at the last sample) | **4** |
+| Draws something | **10** |
+| Reaches attract (still changing at the last sample) | **5** |
 | Blocked on a Sega crypto device regardless of the board | **5** |
 
 Read the board heading before the result. The memory map is now variant-aware, so the CRX boards get their own program RAM, I/O chip and texture windows - but 2B and 2C still have no math coprocessor, and without one no polygon can be transformed. A CRX title that draws only tilemaps and text is at the ceiling of what this library can currently give it, not failing. See [porting-targets.md](docs/technical/porting-targets.md).
@@ -78,7 +78,7 @@ Needs an ADSP-21062 SHARC for the math coprocessor - but that blocks 3D, not att
 | `powsled` | Power Sled (Slave, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 21131 | 15 | MAME cannot run this set either. |
 | `schamp` | Sonic Championship (USA) | 1996 | yes | ok | ok | ok | yes | yes | twitching | STATIC | 8162 | 12 | MAME cannot run this set either. |
 | `sgt24h` | Super GT 24h | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 14371 | 1 | MAME cannot run this set either. Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decryp |
-| `dynabb97` | Dynamite Baseball 97 (Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 5203 | 0 | MAME cannot run this set either. |
+| `dynabb97` | Dynamite Baseball 97 (Revision A) | 1997 | yes | ok | ok | ok | yes | yes | advancing | ATTRACT | 5203 | 0 | MAME cannot run this set either. |
 | `zerogun` | Zero Gunner (Export, Model 2B) | 1997 | yes | ok | ok | ok | yes | no | blank | NO-FRAMES | 6992 | 11 | Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decrypted here. |
 | `pltkids` | Pilot Kids (Model 2B, Revision A) | 1998 | yes | ok | ok | ok | yes | no | blank | NO-FRAMES | 16150 | 1 | Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decrypted here. |
 
