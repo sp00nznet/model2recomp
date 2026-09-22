@@ -324,6 +324,33 @@ per title, or enough of the game's own setup path to let it write one. That is a
 different kind of work from everything else on this page, and it is now the
 named blocker rather than a guess.
 
+### Fourteen sets overflow the dispatch table, and the obvious fix is worse
+
+`func_table` is 8,192 slots, chosen against Virtua Cop's 2,300 functions.
+Fourteen of the thirty-five sets have more: Power Sled 21,131, Dynamite Cop
+17,878, Dynamite Baseball 17,678, Pilot Kids 16,150, Super GT 24h 14,371, Sega
+Rally 14,262, Indy 500 12,176, Virtual-On 11,925, Last Bronx 11,772, Virtua Cop
+2 11,518, Top Skater 11,446, Over Rev 9,350, Sega Ski Super G 8,573, House of
+the Dead 8,259.
+
+Those games register the first 8,192 and every dispatch to the rest misses. The
+runtime said so all along - "Table full!" - but once per function, thousands of
+times, so the line that mattered scrolled away behind itself. It says it once
+now.
+
+**Raising the table does not fix it.** Tried at 65,536: Power Sled starts
+drawing, and Virtua Cop 2 **segfaults**. With a complete table the dispatches
+that used to miss now resolve, and some of them resolve to functions the lifter
+produced from stretches of data rather than code. Truncating the table was
+accidentally shielding the game from its own bad entries, and Virtua Cop 2's
+attract mode was partly standing on that.
+
+So this is the second half of a fix. The first half is the lifter not emitting
+those functions - the same over-discovery that produces one-instruction
+fragments, measurable with `I960_DISCOVERY_STATS=1`. Do that first and this
+number can go up; do it in the other order and you trade one title's attract
+mode for another's.
+
 ## Suggested order
 
 1. **Daytona USA.** Same board, smaller program, one well-understood gap. It

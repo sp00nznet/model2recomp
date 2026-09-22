@@ -11,7 +11,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define TABLE_SIZE 8192  /* Power of 2, must be > number of functions */
+/* Power of two, and it must be larger than the number of functions a game
+ * registers - open addressing with linear probing, so a full table refuses.
+ *
+ * 8192 was chosen against Virtua Cop's 2,300, and fourteen of the thirty-five
+ * sets in the corpus exceed it: Power Sled 21,131, Dynamite Cop 17,878,
+ * Dynamite Baseball 17,678. Those games register the first 8,192 and every
+ * dispatch to the rest misses, which looks like the game losing its way rather
+ * than like a table that is too small. It is a real defect and the message
+ * below names it.
+ *
+ * It is *not* fixed by raising this number, which was tried at 65536. Power
+ * Sled starts drawing, and Virtua Cop 2 segfaults: with a complete table the
+ * dispatches that used to miss now resolve, and some of them resolve to
+ * functions the lifter produced from data rather than code. Truncation was
+ * accidentally shielding them. Raising this is the second half of a fix whose
+ * first half is the lifter not emitting those functions - see
+ * docs/technical/porting-targets.md. */
+#define TABLE_SIZE 8192
 #define TABLE_MASK (TABLE_SIZE - 1)
 
 /* The recursion guard, and it is a guard rather than a model of anything: the
@@ -146,7 +163,15 @@ void func_table_register(uint32_t i960_addr, i960_func_t func)
         }
     }
 
-    fprintf(stderr, "[func_table] ERROR: Table full! Cannot register 0x%08X\n", i960_addr);
+    /* Once, not once per function: a game that overflows does so thousands of
+     * times, and the first line - the one that says what happened - scrolls
+     * away behind the rest. */
+    static bool told;
+    if (!told) {
+        told = true;
+        fprintf(stderr, "[func_table] ERROR: table full at %d slots, starting "
+                "with 0x%08X - raise TABLE_SIZE\n", TABLE_SIZE, i960_addr);
+    }
 }
 
 i960_func_t func_table_lookup(uint32_t i960_addr)

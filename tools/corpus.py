@@ -529,6 +529,10 @@ BLOCKER = {
                 "normally; what it cannot do is 3D, which needs the SHARC.",
     "rchase2":  "Prints CHECKING NET_WORK NOW then NET_BAD, and polls "
                 "315-5649 ports A and B. Same shape as Virtual-On.",
+    "powsled":  "21,131 functions against an 8,192-slot dispatch table, so "
+                "two thirds of them are never registered. Draws when the table "
+                "is large enough - but that makes Virtua Cop 2 segfault, so "
+                "the lifter's spurious functions have to go first.",
     "indy500":  "Uploads a SHARC program through the external IOP port at "
                 "0x008C0000 and waits. Ten dispatches in a whole run. Needs "
                 "the ADSP-21062.",

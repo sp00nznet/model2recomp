@@ -75,7 +75,7 @@ Needs an ADSP-21062 SHARC for the math coprocessor - but that blocks 3D, not att
 | `doa` | Dead or Alive (Model 2B, Revision C) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 8054 | 4 | Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decrypted here. |
 | `dynabb` | Dynamite Baseball | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 17678 | 1 | MAME cannot run this set either. |
 | `lastbrnx` | Last Bronx (Export, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11772 | 2 | MAME cannot run this set either. |
-| `powsled` | Power Sled (Slave, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 21131 | 15 | MAME cannot run this set either. |
+| `powsled` | Power Sled (Slave, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 21131 | 15 | MAME cannot run this set either. 21,131 functions against an 8,192-slot dispatch table, so two thirds of them are never  |
 | `schamp` | Sonic Championship (USA) | 1996 | yes | ok | ok | ok | yes | yes | twitching | STATIC | 8162 | 12 | MAME cannot run this set either. |
 | `sgt24h` | Super GT 24h | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 14371 | 1 | MAME cannot run this set either. Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decryp |
 | `dynabb97` | Dynamite Baseball 97 (Revision A) | 1997 | yes | ok | ok | ok | yes | yes | advancing | ATTRACT | 5203 | 0 | MAME cannot run this set either. |

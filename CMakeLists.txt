@@ -108,8 +108,9 @@ if(MODEL2RECOMP_CORPUS_DIR)
         target_link_libraries(corpus_${_set} PRIVATE model2recomp SDL2::SDL2main)
         # Lifted code sometimes expresses a loop as recursion - the lifter can
         # split a routine into one-instruction fragments that tail-call each
-        # other - so the dispatch chain gets deep. Reserve (do not commit) a
-        # large stack; the default 1 MB is exhausted by a few thousand frames.
+        # other - so the dispatch chain gets deep, and a lifted function's frame
+        # is nothing like a hand-written one's. Reserve (do not commit) 256 MB;
+        # the default 1 MB is gone in a few thousand frames.
         if(MSVC)
             target_link_options(corpus_${_set} PRIVATE /STACK:268435456)
         endif()
