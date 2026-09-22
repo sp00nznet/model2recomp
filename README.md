@@ -345,6 +345,32 @@ sequence is tilemaps and text, and that path is shared across all four boards.
 So the missing DSPs block *3D*, not attract, which is not what this project
 believed before the sweep ran.
 
+### It fed back into the reference title
+
+The point of a corpus is that a fault found in one game is a fault fixed in all
+of them, and the clearest case is *Virtua Cop* itself — the title everything
+here was built against, and the one with the least left to find.
+
+`func_table`'s dispatch-depth guard was 500. Virtua Cop hit it three times a
+run, which looked like nothing. In-game it was dropping a third of the picture:
+
+| Depth 500 | Depth 20,000 |
+|---|---|
+| ![before](docs/corpus/vcop_ingame_before.png) | ![after](docs/corpus/vcop_ingame_after.png) |
+
+Same frame, same input, same ROMs. **66,393 pixels — 34.9% of the screen — were
+black and are now drawn**; the ground, and the panel on the WHARF AM2 sign. The
+guard was abandoning dispatches partway through the scene.
+
+That was found by sweeping thirty-five titles, not by staring at this one. It
+went unnoticed for as long as Virtua Cop was the only game being looked at,
+because three cap hits in a run is not a number anybody investigates.
+
+![Virtua Cop, hit](docs/corpus/vcop_ingame_hit.png)
+
+*Stage 1, after taking a hit: the cracked-screen overlay over the 3D scene, the
+HUD, and the targeting reticle.*
+
 ### What it is for
 
 One game cannot exercise a board. Pointing this at a second title turned up
