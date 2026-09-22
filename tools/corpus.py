@@ -300,6 +300,17 @@ def stage_build(sets, args, st):
             # invocations they accumulate until cl cannot load c2.dll.
             cmd += ["--", "/nodeReuse:false"]
         code, log = run(cmd, timeout=args.build_timeout)
+
+        # A re-lift can emit fewer files than the last one, and CMake's cached
+        # glob still lists the ones that are gone - "C1083: cannot open source
+        # file". CONFIGURE_DEPENDS re-globs on the *next* configure, not inside
+        # the build that tripped over it, so reconfigure and try once more.
+        # Discovery rolling a set back is exactly when this happens, and it
+        # cost Desert Tank its attract mode for a whole sweep.
+        if "C1083" in log:
+            run(["cmake", "-S", ROOT, "-B", BUILD], timeout=600)
+            code, log = run(cmd, timeout=args.build_timeout)
+
         exe = corpus_exe(name)
         rec["build"] = "ok" if exe else ("timeout" if code is None else "fail")
         rec["build_secs"] = round(time.time() - t0, 1)
@@ -619,6 +630,10 @@ def hints_path(name):
     return os.path.join(set_dir(name), "hints.txt")
 
 
+# Discovery's A/B is only as good as its measurement; see stage_discover.
+DISCOVER_MIN_FRAMES = 3600
+DISCOVER_MIN_TIMEOUT = 200
+
 MISS_RE = re.compile(r"no function at 0x([0-9A-Fa-f]{8})")
 
 # How far a set got, as a number, so two runs can be compared. Colours before
@@ -686,6 +701,19 @@ def stage_discover(sets, args, st):
                 bits = line.split("#")[0].split()
                 if len(bits) == 2 and bits[0] == "entry":
                     known.add(bits[1].upper())
+
+        # Measure at the budget the report uses, not a shorter one. The A/B
+        # below is only as good as its measurement, and a run too short to
+        # reach a set's attract mode makes every round look identical: Virtua
+        # Cop at 1,200 fields is a static 8-colour screen either way, so eleven
+        # hints that cost it 2,654 colours down to 1,044 sailed through a guard
+        # that existed to stop exactly that.
+        if args.frames < DISCOVER_MIN_FRAMES:
+            print("      measuring at %d fields, not %d - the A/B needs the "
+                  "budget the report uses" % (DISCOVER_MIN_FRAMES, args.frames))
+            args = argparse.Namespace(**vars(args))
+            args.frames = DISCOVER_MIN_FRAMES
+            args.run_timeout = max(args.run_timeout, DISCOVER_MIN_TIMEOUT)
 
         st = stage_run([name], args, st)
         best = quality(st[name])

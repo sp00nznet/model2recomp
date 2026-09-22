@@ -57,7 +57,7 @@ Same MB86233 coprocessor, same geometry engine and rasterizer; a different I/O c
 | `vcop2` | Virtua Cop 2 | 1995 | yes | ok | ok | ok | yes | yes | advancing | ATTRACT | 11518 | 7 |  |
 | `airwlkrs` | Air Walkers | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 7558 | 1 | MAME cannot run this set either. |
 | `motoraid` | Motor Raid - Twin | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 4327 | 3 |  |
-| `dynamcop` | Dynamite Cop (Export, Model 2A) | 1998 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 17877 | 0 | MAME cannot run this set either. Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decryp |
+| `dynamcop` | Dynamite Cop (Export, Model 2A) | 1998 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 17878 | 1 | MAME cannot run this set either. Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decryp |
 | `hpyagu98` | Hanguk Pro Yagu 98 | 1998 | no | no-rom | no-rom | no-code | - | - | - | - | 0 | 0 | MAME cannot run this set either. |
 
 ## 2B-CRX (15)
@@ -73,9 +73,9 @@ Needs an ADSP-21062 SHARC for the math coprocessor - but that blocks 3D, not att
 | `indy500` | INDY 500 Twin (Revision A, Newer) | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 12176 | 2 | MAME cannot run this set either. |
 | `von` | Cyber Troopers Virtual-On - Twin (Export) | 1995 | yes | ok | ok | ok | yes | yes | frozen | STATIC | 11925 | 2 | MAME cannot run this set either. Colour ramps only partly written - 2 of 32 per channel. |
 | `doa` | Dead or Alive (Model 2B, Revision C) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 8054 | 4 | Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decrypted here. |
-| `dynabb` | Dynamite Baseball | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 17676 | 0 | MAME cannot run this set either. |
+| `dynabb` | Dynamite Baseball | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 17678 | 1 | MAME cannot run this set either. |
 | `lastbrnx` | Last Bronx (Export, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11772 | 2 | MAME cannot run this set either. |
-| `powsled` | Power Sled (Slave, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 21128 | 4 | MAME cannot run this set either. |
+| `powsled` | Power Sled (Slave, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 21131 | 15 | MAME cannot run this set either. |
 | `schamp` | Sonic Championship (USA) | 1996 | yes | ok | ok | ok | yes | yes | twitching | STATIC | 8162 | 12 | MAME cannot run this set either. |
 | `sgt24h` | Super GT 24h | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 14371 | 1 | MAME cannot run this set either. Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decryp |
 | `dynabb97` | Dynamite Baseball 97 (Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 5203 | 0 | MAME cannot run this set either. |
@@ -93,7 +93,7 @@ Needs an MB86235 "TGPx4" for 3D. Same caveat as 2B: the tilemap and text path is
 | `waverunr` | Wave Runner (Japan, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 2802 | 2 | MAME cannot run this set either. |
 | `bel` | Behind Enemy Lines | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 2268 | 1 | MAME cannot run this set either. |
 | `hotd` | The House of the Dead (Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 8259 | 0 | MAME cannot run this set either. |
-| `overrev` | Over Rev (Model 2C, Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 9350 | 1 | MAME cannot run this set either. Bit-bangs the 93C46 serial EEPROM hard - 9,788 port A writes in 300 fields - and its re |
+| `overrev` | Over Rev (Model 2C, Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 9350 | 7 | MAME cannot run this set either. Bit-bangs the 93C46 serial EEPROM hard - 9,788 port A writes in 300 fields - and its re |
 | `rascot2` | Royal Ascot II | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 4502 | 0 | MAME cannot run this set either. |
 | `segawski` | Sega Water Ski (Japan, Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 4213 | 0 | MAME cannot run this set either. |
-| `topskatr` | Top Skater (Export, Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11445 | 9 | MAME cannot run this set either. |
+| `topskatr` | Top Skater (Export, Revision A) | 1997 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11446 | 30 | MAME cannot run this set either. |
