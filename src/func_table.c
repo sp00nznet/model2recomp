@@ -30,7 +30,14 @@
  * launcher links with a 256 MB stack reserve (CMakeLists) to give this room,
  * and MODEL2_CALLDEPTH overrides the cap for anything that needs more. */
 #define MAX_CALL_DEPTH_DEFAULT 20000
-#define MAX_MISS_LOG   20
+/* How many *distinct* addresses the dispatch-miss log reports.
+ *
+ * It used to be twenty occurrences rather than twenty addresses, and a game
+ * that misses one address inside a loop fills the log with twenty copies of it
+ * and never mentions the rest. tools/corpus.py discover harvests its entry
+ * hints from this log, so it was being handed one address per round when there
+ * were dozens. MODEL2_MISSLOG overrides the cap. */
+#define MAX_MISS_LOG   256
 
 unsigned long g_dispatches;
 static uint32_t s_ring[32];
@@ -88,6 +95,23 @@ static int func_table_max_depth(void)
 }
 uint32_t g_cur_func = 0;   /* debug: MODEL2_WATCH */
 static int s_miss_count = 0;
+static uint32_t s_miss_seen[MAX_MISS_LOG];
+
+/* True the first time this address misses, false afterwards. */
+static bool miss_is_new(uint32_t addr)
+{
+    for (int i = 0; i < s_miss_count; i++)
+        if (s_miss_seen[i] == addr) return false;
+    static int cap = -1;
+    if (cap < 0) {
+        const char *e = getenv("MODEL2_MISSLOG");
+        cap = (e && atoi(e) > 0) ? atoi(e) : MAX_MISS_LOG;
+        if (cap > MAX_MISS_LOG) cap = MAX_MISS_LOG;
+    }
+    if (s_miss_count >= cap) return false;
+    s_miss_seen[s_miss_count++] = addr;
+    return true;
+}
 
 static inline uint32_t hash_addr(uint32_t addr)
 {
@@ -165,9 +189,8 @@ bool func_table_call(uint32_t i960_addr)
                 fprintf(stderr, "[miss] 0x%08X from 0x%08X\n",
                         i960_addr, g_cur_func);
             }
-        } else if (s_miss_count < MAX_MISS_LOG) {
+        } else if (miss_is_new(i960_addr)) {
             printf("[func_table] MISS: no function at 0x%08X\n", i960_addr);
-            s_miss_count++;
         }
         return false;
     }
