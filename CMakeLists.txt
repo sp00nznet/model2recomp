@@ -70,6 +70,14 @@ if(MODEL2RECOMP_BUILD_TESTS)
         model2recomp
         SDL2::SDL2main
     )
+
+    add_executable(model2recomp_test_eeprom93c46
+        tests/test_eeprom93c46.c
+    )
+    target_link_libraries(model2recomp_test_eeprom93c46 PRIVATE
+        model2recomp
+        SDL2::SDL2main
+    )
 endif()
 
 # --- Corpus sweep -------------------------------------------------------------

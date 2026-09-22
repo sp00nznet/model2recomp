@@ -368,6 +368,7 @@ nothing from it ships here.
 cmake --build build --config Release
 ./build/Release/model2recomp_test_tilemap
 ./build/Release/model2recomp_test_geometry
+./build/Release/model2recomp_test_eeprom93c46
 ```
 
 Both are self-checking: each prints one line per check and exits non-zero if
