@@ -190,8 +190,19 @@ class I960Lifter:
         # which is the next function, exactly as the hardware would.
         if end_addr is not None and max_addr < len(self.data):
             if not self._ends_in_transfer(lines):
+                # Guarded, like every other transfer here. If the next function
+                # is not registered the dispatch does nothing, and returning
+                # without popping leaks the frame this function allocated - one
+                # per call, until the guest stack climbs over the PRCB and the
+                # game's own variables. That is the same fault the comment above
+                # describes, reintroduced by the fix for it.
+                #
+                # It matters most where the lifter has split a loop into
+                # fragments that fall through to each other: the back edge is a
+                # dispatch, so an unguarded miss leaks a frame per iteration.
+                # Virtua Cop 2's colour-ramp fill is exactly that shape.
                 lines.append(f'    /* falls through into 0x{max_addr:08X} */')
-                lines.append(f'    func_table_call(0x{max_addr:08X});')
+                lines.append(f'    if (!func_table_call(0x{max_addr:08X})) i960_do_ret();')
                 lines.append(f'    return;')
 
         self.functions[func_addr] = lines
