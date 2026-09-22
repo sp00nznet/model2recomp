@@ -29,6 +29,10 @@ so the screenshots and some examples are its.
 **Current version: v0.3.0 — _"Real Silicon"_ (September 2026).**
 See the [Changelog](#changelog) for what landed and when.
 
+**Thirty-five Model 2 ROM sets now go through this library end to end.** All of
+them lift, compile and boot; ten draw; five run their attract sequence. See
+[The Corpus Sweep](#the-corpus-sweep).
+
 ![Virtua Cop attract mode](docs/vcop_attract.png)
 
 *Virtua Cop's attract mode, drawn by this library from the game's own display
@@ -111,12 +115,12 @@ MAME's behaviour where it was ported from it.
 | Timers | **Done** | 4× countdown timers off the 25 MHz clock |
 | Interrupt controller | **Done** | Request / acknowledge / enable, all lines serviced |
 | EEPROM / backup SRAM | **Done** | 16 KB, saved and restored |
-| I/O board | **Partial** | Command handshake, buttons and lightgun all reach the guest through DPRAM. The board's EEPROM - coinage and game settings - is not modelled |
+| I/O board | **Partial** | Model 1 board: command handshake, buttons and lightgun all reach the guest through DPRAM. CRX boards: the Sega 315-5649 register file and the 93C46 serial EEPROM hung off it |
 | Interrupt frame | **Done** | The handler runs with the context snapshotted and restored around it, which is what the hardware guarantees. `MODEL2_IRQMODE` keeps the other models for A/B |
 | Platform (SDL2) | **Done** | Window, scaling, presentation, keyboard and mouse |
 | Sound | **Stub** | UART handshake only — no 68000, no MultiPCM, no audio |
-| Copro data ROM | **Not implemented** | The coprocessor's external data socket reads zero. Empty on the reference title; Daytona USA puts 4 MB there |
-| Model 2A / 2B / 2C | **Partial** | The variant now picks the memory map: 256 KB of program RAM, the Sega 315-5649 I/O chip, and the CRX texture and luma RAM windows. 2A needs nothing else in principle; 2B still needs an ADSP-21062 SHARC and 2C an MB86235 for the math coprocessor, so neither can do 3D |
+| Copro data ROM | **Done** | The coprocessor's external data socket, masked to the region size in dwords. Empty on Virtua Cop; Daytona USA puts 4 MB of collision and height data there |
+| Model 2A / 2B / 2C | **Partial** | The variant picks the memory map: 256 KB of program RAM, the Sega 315-5649 I/O chip with its serial EEPROM, the CRX texture and luma RAM windows, and 2B's relocated serial port. 2B still needs an ADSP-21062 SHARC and 2C an MB86235 for the math coprocessor, so neither can do 3D — but both can and do reach attract mode on tilemaps |
 
 ### What "rasterizer" means here, and what it does not
 
@@ -305,24 +309,65 @@ through every title and what each one needs.
 
 ## The Corpus Sweep
 
-There are only about thirty Model 2 titles, which is few enough to stop
-treating a port as a bespoke project and run the whole library as a corpus
-instead:
+There are only about thirty Model 2 titles, which is few enough to stop treating
+a port as a bespoke project and run the whole library as a corpus instead:
 
 ```bash
 python tools/corpus.py all
 ```
 
 That reads every `ROM_START` out of MAME's driver, builds each set's region
-images, lifts its i960 program to C, builds it against this library on a shared
-launcher, boots it headless and writes [CORPUS.md](CORPUS.md) — one row per
-title, from "do we have the ROM" through to "does it reach attract mode".
+images, lifts its i960 program to C, builds it against this library on one
+shared launcher, boots it headless and writes [CORPUS.md](CORPUS.md) — one row
+per title, from "do we have the ROM" through to "does it reach attract mode".
 
-One game cannot exercise a board: pointing this at a second title turned up
-eight bugs in shared code that *Virtua Cop* never tripped. Thirty titles is
-thirty more chances, and the sweep is what makes running them cheap.
+### Where the corpus has got to
+
+Thirty-five sets on hand. **All thirty-five** extract, lift to C, compile and
+boot. **Ten** put a picture on screen; **five** are running their attract
+sequence.
+
+| | | |
+|---|---|---|
+| ![Virtua Cop](docs/corpus/vcop.png) | ![Desert Tank](docs/corpus/desert.png) | ![Virtua Cop 2](docs/corpus/vcop2.png) |
+| **Virtua Cop** — the reference title, Model 2 | **Desert Tank** — Model 2, and `MACHINE_NOT_WORKING` in MAME | **Virtua Cop 2** — 2A-CRX |
+| ![Gunblade NY](docs/corpus/gunblade.png) | ![Dynamite Baseball 97](docs/corpus/dynabb97.png) | |
+| **Gunblade NY** — 2B-CRX, with no coprocessor at all | **Dynamite Baseball 97** — 2B-CRX | |
+
+Every one of those is the recompiled game drawing through this library at the
+board's native 496×384, captured headless by the sweep.
+
+Two of them are worth a second look. **Desert Tank** is a title nobody had
+ported and MAME cannot run; it boots on the generic launcher with no
+title-specific code at all. **Gunblade NY** reaches attract on 2B-CRX, whose
+math coprocessor is an ADSP-21062 this library does not have — its attract
+sequence is tilemaps and text, and that path is shared across all four boards.
+So the missing DSPs block *3D*, not attract, which is not what this project
+believed before the sweep ran.
+
+### What it is for
+
+One game cannot exercise a board. Pointing this at a second title turned up
+eight bugs in shared code that *Virtua Cop* never tripped, and pointing it at
+thirty-five turned up more of the same kind — none of them missing hardware, all
+of them defaults that were quietly wrong:
+
+- a dispatch-depth guard of 500, which turned a lifted loop into abandoned
+  recursion in twenty of the thirty-five sets
+- a UART read that returned one byte lane of four, so a 16-bit poll of the
+  status register always read zero — **a fault on the original board** that
+  neither reference title triggered
+- the display list walked only when a game rewrote one register, rather than
+  every vblank as the hardware does
+- port A of the CRX I/O chip answering with the cabinet's inputs instead of its
+  own latch
+- a literal `0.0 / 0.0` in four programs' ROMs, which is a runtime NaN on the
+  i960 and a *compile error* in C
+
+The sweep is what makes finding those cheap.
 **[docs/technical/corpus.md](docs/technical/corpus.md)** explains how it decides
-what it saw.
+what it saw, and **[CORPUS.md](CORPUS.md)** carries a per-set blocker for
+everything diagnosed so far.
 
 Nothing ROM-derived is committed — the corpus directory is local scratch, and
 the table records what happened on a machine that had the sets.
