@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 
 /* Power of two, and it must be larger than the number of functions a game
  * registers - open addressing with linear probing, so a full table refuses.
@@ -82,6 +83,22 @@ static void prof_dump(void)
         fprintf(stderr, "[prof] %08X %u\n", s_prof_addr[i], s_prof_hits[i]);
 }
 
+/* A crashing game never reaches atexit, which is exactly when you most want
+ * the ring. Catch the fault, print it, and let the default handler finish the
+ * job - lifted code can and does dereference a bad address, and "segmentation
+ * fault" on its own says nothing about which of eleven thousand functions did
+ * it. */
+void func_table_dump_ring(void);
+
+static void ring_on_fault(int sig)
+{
+    fprintf(stderr, "\n[func_table] signal %d - last dispatches:\n", sig);
+    func_table_dump_ring();
+    fflush(stderr);
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
 /* MODEL2_RING dumps the last 32 dispatches at exit: when the game stops
  * making progress, this names the loop it is stuck in. */
 void func_table_dump_ring(void)
@@ -145,6 +162,10 @@ void func_table_init(void)
     s_call_depth = 0;
     s_miss_count = 0;
     if (getenv("MODEL2_RING")) atexit(func_table_dump_ring);
+    /* Always, not only under MODEL2_RING: a crash is the case where this
+     * costs nothing and is the only record of what happened. */
+    signal(SIGSEGV, ring_on_fault);
+    signal(SIGABRT, ring_on_fault);
     if (getenv("MODEL2_PROFILE")) atexit(prof_dump);
     printf("[func_table] Initialized (%d slots)\n", TABLE_SIZE);
 }
