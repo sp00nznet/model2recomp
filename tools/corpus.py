@@ -523,9 +523,10 @@ BLOCKER = {
                 "branch on what the device says.",
     "von":      "Completes its whole boot self-test - COPRO prog, GEO prog, "
                 "both texture banks - then prints THERE IS NO COMMUNICATION "
-                "BOARD! and stops. It never reads the comm board, so that "
-                "message is a notice rather than the fault; it then polls "
-                "315-5649 ports A and B 23,000 times a run.",
+                "BOARD! and draws that screen. It never reads the comm board, "
+                "so the message is a notice. Colour ramps are full and it runs "
+                "36,000 dispatches a field, so it is executing game logic "
+                "normally; what it cannot do is 3D, which needs the SHARC.",
     "rchase2":  "Prints CHECKING NET_WORK NOW then NET_BAD, and polls "
                 "315-5649 ports A and B. Same shape as Virtual-On.",
     "indy500":  "Uploads a SHARC program through the external IOP port at "
