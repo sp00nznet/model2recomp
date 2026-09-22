@@ -55,6 +55,7 @@ bool model2recomp_init(const char *window_title, int scale, model2_variant_t var
  *   polygons.bin      3D models, read by the geometry engine
  *   textures.bin      texture sheets
  *   copro_tables.bin  coprocessor sin/cos, atan, 1/x and 1/sqrt(x) tables
+ *   copro_data.bin    the coprocessor's external data socket (Daytona USA)
  *
  * Only program.bin is required; a missing image disables its subsystem rather
  * than failing the load.

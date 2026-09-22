@@ -67,6 +67,11 @@ static bool      s_bank_on;
 
 static uint32_t  s_ctl;
 static uint32_t  s_upload_cnt;
+
+/* The coprocessor's external data ROM, loaded from copro_data.bin. Sized in
+ * dwords and masked to a power of two, as MAME does. */
+static uint32_t *s_data;
+static uint32_t  s_data_words;
 static bool      s_booted;
 
 /* FIFOs. MAME's are 8 deep with flow control that halts the other side; here
@@ -163,7 +168,16 @@ static uint32_t atan_r(void)
 static uint32_t tgp_memory_r(uint32_t offset)
 {
     uint32_t adr = (s_bank_reg & 0xFF0000) | offset;
-    if (adr & 0x800000) return 0;
+    if (adr & 0x800000) {
+        /* The coprocessor's external data socket. Virtua Cop leaves it empty
+         * and this returned zero for every title because of that; Daytona USA
+         * fills it with 4 MB of collision meshes and height maps and reads
+         * them through this window. MAME masks the address to the region size
+         * in dwords, which is what makes a partly-filled socket wrap rather
+         * than read past its end. */
+        if (!s_data || !s_data_words) return 0;
+        return s_data[adr & (s_data_words - 1)];
+    }
     if (adr & 0x400000) return bus_bufferram_read32((adr & 0x7FFF) * 4);
     return 0;
 }
@@ -898,6 +912,20 @@ static void copro_pump(void)
 }
 
 /* ---- i960-facing ports ---- */
+
+void copro_load_data(const uint8_t *data, uint32_t size)
+{
+    free(s_data);
+    s_data_words = size / 4;
+    /* The mask below needs a power of two; region sizes are, but be explicit
+     * rather than trust the caller. */
+    uint32_t p2 = 1;
+    while (p2 * 2 <= s_data_words) p2 *= 2;
+    s_data_words = p2;
+    s_data = (uint32_t *)malloc(s_data_words ? s_data_words * 4 : 4);
+    if (s_data && s_data_words) memcpy(s_data, data, s_data_words * 4);
+    printf("[copro] TGP data ROM loaded: %u dwords\n", s_data_words);
+}
 
 void copro_load_tables(const uint8_t *data, uint32_t size)
 {

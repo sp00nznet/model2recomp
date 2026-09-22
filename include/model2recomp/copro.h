@@ -18,6 +18,11 @@
 
 void copro_load_tables(const uint8_t *data, uint32_t size);
 
+/* The coprocessor's external data ROM (copro_data.bin). Empty on Virtua Cop;
+ * Daytona USA puts 4 MB of collision and height data there and reads it
+ * through the coprocessor's banked window. */
+void copro_load_data(const uint8_t *data, uint32_t size);
+
 /* i960-side ports */
 void     copro_ctl_write(uint32_t data);     /* 0x00980000: upload gate / boot */
 uint32_t copro_ctl_read(void);

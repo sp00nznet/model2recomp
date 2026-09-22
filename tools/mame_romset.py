@@ -71,15 +71,27 @@ def _expand_macros(text):
     ROM_REGIONs -- the coprocessor's math tables among them, which this library
     very much does load. Left unexpanded, every set that uses them looks like it
     has no math-table ROM at all.
+
+    The use site is matched loosely on purpose. Daytona's reads
+
+        MODEL2_CPU_BOARD /* Model 2 CPU board extra roms */
+
+    and an exact-line match silently skipped it, so Daytona lifted, built, ran
+    and drew with a coprocessor that had no sin, cos, atan or reciprocal tables
+    to work from. A macro that expands for most sets and not others is worse
+    than one that never expands, because nothing looks wrong.
     """
     for macro in ("MODEL2_CPU_BOARD", "MODEL2A_VID_BOARD"):
         m = re.search(r"^#define\s+%s\s*\\\n((?:.*\\\n)*.*)$" % macro, text, re.M)
         if not m:
             continue
         body = m.group(1).replace("\\\n", "\n")
-        # Replace uses, not the definition itself.
-        text = text[:m.start()] + text[m.start():].replace(
-            "\n\t" + macro + "\n", "\n" + body + "\n")
+        # Replace uses, not the definition itself. Match the whole line, since
+        # the use may carry a trailing comment.
+        head, tail = text[:m.end()], text[m.end():]
+        tail = re.sub(r"^[ \t]*" + macro + r"[ \t]*(?:/\*.*?\*/)?[ \t]*$",
+                      lambda _: body, tail, flags=re.M)
+        text = head + tail
     return text
 
 

@@ -131,6 +131,7 @@ bool model2recomp_load_rom(const char *rom_dir)
     load_region(rom_dir, "polygons.bin", bus_load_extra_data, false);
     load_region(rom_dir, "textures.bin", bus_load_texture_rom, false);
     load_region(rom_dir, "copro_tables.bin", copro_load_tables, false);
+    load_region(rom_dir, "copro_data.bin",   copro_load_data,   false);
 
     printf("[model2recomp] ROM loading complete\n");
     return true;
