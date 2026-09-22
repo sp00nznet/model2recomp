@@ -72,6 +72,22 @@ static uint32_t  s_upload_cnt;
  * dwords and masked to a power of two, as MAME does. */
 static uint32_t *s_data;
 static uint32_t  s_data_words;
+
+/* Whether this board's math coprocessor is the MB86233 this file emulates.
+ *
+ * 2B-CRX has an ADSP-21062 SHARC and 2C-CRX an MB86235, and their games upload
+ * microcode for those. Feeding it to an MB86233 core does not produce a wrong
+ * answer, it produces an arbitrary one - and copro_pump runs the thing until it
+ * emits a word or starves, so a program that was never MB86233 code in the
+ * first place can spin. Accept the upload, execute nothing, and let the game
+ * find an empty FIFO, which is at least a state the hardware can be in. */
+static bool s_have_mb86233 = true;
+
+void copro_set_variant(model2_variant_t v)
+{
+    s_have_mb86233 = (v == MODEL2_ORIGINAL || v == MODEL2A_CRX);
+}
+
 static bool      s_booted;
 
 /* FIFOs. MAME's are 8 deep with flow control that halts the other side; here
@@ -160,11 +176,7 @@ static uint32_t atan_r(void)
  * address bits. Two devices hang off it - buffer RAM at bit 22, and the
  * coprocessor's own data ROM socket at bit 23.
  *
- * ponytail: the data ROM socket reads zero. It is empty on Virtua Cop, so
- * there is nothing here to test against. A title that fills it (Daytona USA
- * puts 4MB of collision and height-map data there) needs a copro_data region
- * loaded and returned here, masked to the region size in dwords - see
- * model2_tgp_state::copro_tgp_memory_r and docs/technical/porting-targets.md. */
+ * Both are modelled; see model2_tgp_state::copro_tgp_memory_r. */
 static uint32_t tgp_memory_r(uint32_t offset)
 {
     uint32_t adr = (s_bank_reg & 0xFF0000) | offset;
@@ -975,6 +987,8 @@ void copro_fifo_write(uint32_t data)
 
 uint32_t copro_fifo_read(void)
 {
+    if (!s_have_mb86233)
+        return 0;
     copro_pump();
     if (s_out_head == s_out_tail)
         return 0;

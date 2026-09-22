@@ -50,6 +50,7 @@ bool model2recomp_init(const char *window_title, int scale, model2_variant_t var
 
     /* Initialize subsystems */
     bus_set_variant(variant);
+    copro_set_variant(variant);
     bus_init();
     i960_reset();
     func_table_init();

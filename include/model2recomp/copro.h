@@ -14,6 +14,7 @@
 #define MODEL2RECOMP_COPRO_H
 
 #include <stdint.h>
+#include "model2recomp/model2recomp.h"
 #include <stdbool.h>
 
 void copro_load_tables(const uint8_t *data, uint32_t size);
@@ -22,6 +23,12 @@ void copro_load_tables(const uint8_t *data, uint32_t size);
  * Daytona USA puts 4 MB of collision and height data there and reads it
  * through the coprocessor's banked window. */
 void copro_load_data(const uint8_t *data, uint32_t size);
+
+/* Which math coprocessor this board has. The MB86233 core here is correct for
+ * the original board and 2A-CRX; 2B has a SHARC and 2C an MB86235, and running
+ * their microcode on this core produces arbitrary results rather than wrong
+ * ones. Call before use. */
+void copro_set_variant(model2_variant_t variant);
 
 /* i960-side ports */
 void     copro_ctl_write(uint32_t data);     /* 0x00980000: upload gate / boot */
