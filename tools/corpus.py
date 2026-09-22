@@ -521,6 +521,16 @@ BLOCKER = {
                 "in 300 fields - and its read count is identical with no "
                 "EEPROM, a read-only one and a full one, so the loop does not "
                 "branch on what the device says.",
+    "von":      "Completes its whole boot self-test - COPRO prog, GEO prog, "
+                "both texture banks - then prints THERE IS NO COMMUNICATION "
+                "BOARD! and stops. It never reads the comm board, so that "
+                "message is a notice rather than the fault; it then polls "
+                "315-5649 ports A and B 23,000 times a run.",
+    "rchase2":  "Prints CHECKING NET_WORK NOW then NET_BAD, and polls "
+                "315-5649 ports A and B. Same shape as Virtual-On.",
+    "indy500":  "Uploads a SHARC program through the external IOP port at "
+                "0x008C0000 and waits. Ten dispatches in a whole run. Needs "
+                "the ADSP-21062.",
     "skisuprg": "Drew a partial screen while port A of the 315-5649 wrongly "
                 "returned the cabinet inputs; blank now that it returns what "
                 "the hardware does. Was relying on the inaccuracy.",

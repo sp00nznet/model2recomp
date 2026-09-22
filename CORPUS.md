@@ -66,12 +66,12 @@ Needs an ADSP-21062 SHARC for the math coprocessor - but that blocks 3D, not att
 
 | Set | Game | Year | ROM | Extract | Lifts | Builds | Boots | Renders | Motion | Furthest | Funcs | Hints | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `rchase2` | Rail Chase 2 (Revision A) | 1994 | yes | ok | ok | ok | yes | yes | twitching | STATIC | 4901 | 3 |  |
+| `rchase2` | Rail Chase 2 (Revision A) | 1994 | yes | ok | ok | ok | yes | yes | twitching | STATIC | 4901 | 3 | Prints CHECKING NET_WORK NOW then NET_BAD, and polls 315-5649 ports A and B. Same shape as Virtual-On. |
 | `vstriker` | Virtua Striker (Revision A) | 1994 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 2525 | 16 | Sound board. Sits on "SOUND initialize...", writes the serial data register once and waits for a reply. Needs the 68000; |
 | `fvipers` | Fighting Vipers (Revision D) | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 3593 | 3 | MAME cannot run this set either. |
 | `gunblade` | Gunblade NY (Revision A) | 1995 | yes | ok | ok | ok | yes | yes | advancing | ATTRACT | 5813 | 5 |  |
-| `indy500` | INDY 500 Twin (Revision A, Newer) | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 12176 | 2 | MAME cannot run this set either. |
-| `von` | Cyber Troopers Virtual-On - Twin (Export) | 1995 | yes | ok | ok | ok | yes | yes | frozen | STATIC | 11925 | 2 | MAME cannot run this set either. Colour ramps only partly written - 2 of 32 per channel. |
+| `indy500` | INDY 500 Twin (Revision A, Newer) | 1995 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 12176 | 2 | MAME cannot run this set either. Uploads a SHARC program through the external IOP port at 0x008C0000 and waits. Ten disp |
+| `von` | Cyber Troopers Virtual-On - Twin (Export) | 1995 | yes | ok | ok | ok | yes | yes | frozen | STATIC | 11925 | 2 | MAME cannot run this set either. Completes its whole boot self-test - COPRO prog, GEO prog, both texture banks - then pr |
 | `doa` | Dead or Alive (Model 2B, Revision C) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 8054 | 4 | Behind a Sega 315-5881/317-0229 cryptographic device; the data it streams is not decrypted here. |
 | `dynabb` | Dynamite Baseball | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 17678 | 1 | MAME cannot run this set either. |
 | `lastbrnx` | Last Bronx (Export, Revision A) | 1996 | yes | ok | ok | ok | yes | no | blank | BOOTS-BLANK | 11772 | 2 | MAME cannot run this set either. |
