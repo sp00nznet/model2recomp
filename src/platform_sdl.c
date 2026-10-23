@@ -167,8 +167,17 @@ void platform_present_frame(const uint8_t *framebuffer, int width, int height)
 void platform_queue_audio(const int16_t *samples, int num_samples)
 {
     if (s_audio_dev > 0 && samples) {
+        /* A run that outpaces real time (MODEL2_FAST) would queue without
+         * bound; past a second of backlog the samples are dropped. */
+        if (SDL_GetQueuedAudioSize(s_audio_dev) > 44100u * 4u) return;
         SDL_QueueAudio(s_audio_dev, samples, num_samples * 2 * sizeof(int16_t));
     }
+}
+
+int platform_audio_queued_frames(void)
+{
+    if (s_audio_dev <= 0) return -1;
+    return (int)(SDL_GetQueuedAudioSize(s_audio_dev) / 4);
 }
 
 /* MODEL2_FAST=1 runs the board as fast as the host can, for automated tests:

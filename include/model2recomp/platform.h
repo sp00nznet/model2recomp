@@ -29,6 +29,9 @@ void platform_present_frame(const uint8_t *framebuffer, int width, int height);
 /* Queue audio samples for playback (stereo int16, interleaved L/R) */
 void platform_queue_audio(const int16_t *samples, int num_samples);
 
+/* Stereo frames still queued for playback, or -1 with no audio device. */
+int platform_audio_queued_frames(void);
+
 /* Frame sync (~57.5 Hz for Model 2, ~60 Hz NTSC) */
 void platform_frame_sync(void);
 

@@ -32,8 +32,8 @@ import zipfile
 #
 # model2recomp_load_rom() reads a directory of flat images, one per region, and
 # treats everything but program.bin as optional. Regions not named here (the
-# sound board's 68000 code and MultiPCM samples, the 315-5881 key) have nothing
-# to load them yet; they are still catalogued, just not written.
+# 315-5881 key, the original board's MultiPCM) have nothing to load them yet;
+# they are still catalogued, just not written.
 REGION_FILES = {
     "maincpu":          "program.bin",
     "main_data":        "data.bin",
@@ -41,6 +41,8 @@ REGION_FILES = {
     "textures":         "textures.bin",
     "copro_tgp_tables": "copro_tables.bin",
     "copro_data":       "copro_data.bin",
+    "audiocpu":         "sound_program.bin",
+    "samples":          "samples.bin",
 }
 
 # The driver's state class is what actually says which board a set runs on --

@@ -23,6 +23,10 @@ add_library(model2recomp STATIC
     src/geometry.c
     src/copro.c
     src/sound.c
+    src/scsp.c
+    third_party/musashi/m68kcpu.c
+    third_party/musashi/m68kops.c
+    third_party/musashi/softfloat/softfloat.c
     src/io.c
     src/timer.c
     src/eeprom.c
@@ -33,6 +37,10 @@ target_include_directories(model2recomp
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
+target_include_directories(model2recomp PRIVATE third_party/musashi)
+# Musashi is third-party, generated code: not our warnings to fix.
+set_source_files_properties(third_party/musashi/m68kcpu.c third_party/musashi/m68kops.c
+    third_party/musashi/softfloat/softfloat.c PROPERTIES COMPILE_OPTIONS "-w")
 
 target_link_libraries(model2recomp
     PUBLIC SDL2::SDL2

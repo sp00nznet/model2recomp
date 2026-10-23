@@ -29,11 +29,31 @@ static long s_fields_done = 0;
 static bool s_initialized = false;
 
 /* Audio buffer for one frame (~735 stereo samples at 44100/60) */
-#define AUDIO_SAMPLES_PER_FRAME 735
-static int16_t s_audio_buffer[AUDIO_SAMPLES_PER_FRAME * 2];
 
 /* Frame timing (microseconds per frame at ~57.5 Hz) */
 #define FRAME_US 17391
+
+/* Audio per field: nominally 44100 Hz over FRAME_US, then trimmed a little
+ * each field to hold the host's queue near 80 ms. The host paces fields
+ * (vsync, rAF, the field timer) and the drift between that and 44.1 kHz has
+ * to go somewhere; a few samples a field in the sound board's clock is
+ * inaudible, a gap in the queue is not. */
+#define AUDIO_SAMPLES_MAX 1024
+static int16_t s_audio_buffer[AUDIO_SAMPLES_MAX * 2];
+static int audio_samples_this_field(void)
+{
+    int base = (int)(44100.0 * FRAME_US / 1000000.0 + 0.5);
+    int queued = platform_audio_queued_frames();
+    if (queued < 0) return base;
+    int target = 44100 * 80 / 1000;
+    int corr = (target - queued) / 16;
+    if (corr > 64) corr = 64;
+    if (corr < -64) corr = -64;
+    int n = base + corr;
+    if (n > AUDIO_SAMPLES_MAX) n = AUDIO_SAMPLES_MAX;
+    if (n < 64) n = 64;
+    return n;
+}
 
 bool model2recomp_init(const char *window_title, int scale, model2_variant_t variant)
 {
@@ -133,6 +153,8 @@ bool model2recomp_load_rom(const char *rom_dir)
     load_region(rom_dir, "textures.bin", bus_load_texture_rom, false);
     load_region(rom_dir, "copro_tables.bin", copro_load_tables, false);
     load_region(rom_dir, "copro_data.bin",   copro_load_data,   false);
+    load_region(rom_dir, "sound_program.bin", sound_load_program, false);
+    load_region(rom_dir, "samples.bin",       sound_load_samples, false);
 
     printf("[model2recomp] ROM loading complete\n");
     return true;
@@ -231,9 +253,9 @@ void model2recomp_end_frame(void)
     /* Advance timers */
     timer_tick(FRAME_US);
 
-    /* Run sound CPU and generate audio */
-    sound_run_frame();
-    sound_generate_samples(s_audio_buffer, AUDIO_SAMPLES_PER_FRAME);
+    /* Run the sound board for this field's worth of audio */
+    int audio_n = audio_samples_this_field();
+    sound_generate_samples(s_audio_buffer, audio_n);
 
     /* Render video: 3D first into its own bitmap, then composite */
     geo_render_polygons();
@@ -246,7 +268,7 @@ void model2recomp_end_frame(void)
     }
 
     /* Queue audio */
-    platform_queue_audio(s_audio_buffer, AUDIO_SAMPLES_PER_FRAME);
+    platform_queue_audio(s_audio_buffer, audio_n);
 
     /* Frame sync */
     platform_frame_sync();
@@ -279,8 +301,19 @@ void model2recomp_trigger_vblank(void)
  * per field, in priority order. A source that needs to interrupt a handler
  * already running would need the interrupt table's pending-priority words.
  */
+static int s_in_dispatch;
+
+void model2recomp_spin_irq(void)
+{
+    if (s_in_dispatch) return;
+    if (!(irq_request_read() & irq_enable_read() & 0xC00)) return;
+    model2recomp_dispatch_irq();
+}
+
 void model2recomp_dispatch_irq(void)
 {
+    if (s_in_dispatch) return;
+    s_in_dispatch = 1;
     /* Which controller bits drive which external line, per
      * model2_state::irq_update. */
     static const uint32_t line_mask[4] = { 0x001, 0x002, 0x3FC, 0xC00 };
@@ -334,6 +367,7 @@ void model2recomp_dispatch_irq(void)
             break;
         }
     }
+    s_in_dispatch = 0;
 }
 
 void model2recomp_save_ppm(const char *path)

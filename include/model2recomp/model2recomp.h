@@ -83,6 +83,10 @@ void model2recomp_trigger_vblank(void);
  */
 void model2recomp_dispatch_irq(void);
 
+/* From a guest spin loop: deliver a pending, enabled sound-board interrupt
+ * (controller lines 10-11) now instead of at the next field boundary. */
+void model2recomp_spin_irq(void);
+
 /*
  * Video field sync - the frame boundary for a recompiled game.
  *

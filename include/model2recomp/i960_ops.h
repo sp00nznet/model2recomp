@@ -54,8 +54,13 @@ static inline uint32_t op_modi(uint32_t src1, uint32_t src2)
 static inline void i960_spin_poll(void)
 {
     static unsigned s_spins;
-    if ((++s_spins & 0x3FF) == 0)
+    if ((++s_spins & 0x3FF) == 0) {
         (void)model2recomp_field_sync();
+        /* The sound board's UART interrupt arrives mid-field on the hardware
+         * (320 us after each byte); a game that waits on VBlank in a spin
+         * loop gets it delivered here rather than one byte per field. */
+        model2recomp_spin_irq();
+    }
 }
 
 /* ---- Arithmetic ---- */

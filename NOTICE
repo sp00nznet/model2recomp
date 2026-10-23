@@ -93,13 +93,30 @@ BSD-3-Clause — ported from MAME
                                    reports once the link times out)
                                 (c) Ariel Ramos; Angelo Salese
 
+    src/scsp.c                  sound/scsp.cpp, sound/scspdsp.cpp
+    include/model2recomp/scsp.h   (Yamaha YMF292-F SCSP: slots, envelopes,
+                                 LFO, the DSP, timers and the MIDI port; the
+                                 framework glue - sample-counted timers, a
+                                 whole-byte MIDI hand-over, a plain sample
+                                 array - is new)
+                                (c) ElSemi; R. Belmont; thanks to kingshriek
+
+    src/sound.c                 sega/model2.cpp (the 68000 memory map of the
+                                 Model 2A sound board and its UART link)
+                                (c) R. Belmont; Olivier Galibert; ElSemi;
+                                    Angelo Salese; Matthew Daniels
+
+
+MIT — Musashi
+-------------
+
+  third_party/musashi/        The 68000 core, Karl Stenerud's Musashi
+                              (https://github.com/kstenerud/Musashi), MIT;
+                              licence and copyright in its readme.txt.
+
 
 Learned from, no code taken
 ---------------------------
-
-  src/sound.c is a stub and contains no ported code. When it is implemented it
-  will most likely derive from MAME's sound/multipcm.cpp ((c) Miguel Angel
-  Horna) and sound/scsp.cpp, and this file must be updated when it does.
 
   m2-hle2 (https://github.com/biggestsonicfan/m2-hle2), rob's
   (@biggestsonicfan) own high-level Model 2 emulator. It has no licence yet,

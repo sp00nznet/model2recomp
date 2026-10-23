@@ -151,7 +151,7 @@ MAME's behaviour where it was ported from it.
 | I/O board | **Partial** | Model 1 board: command handshake, buttons and lightgun all reach the guest through DPRAM. CRX boards: the Sega 315-5649 register file and the 93C46 serial EEPROM hung off it |
 | Interrupt frame | **Done** | The handler runs with the context snapshotted and restored around it, which is what the hardware guarantees. `MODEL2_IRQMODE` keeps the other models for A/B |
 | Platform (SDL2) | **Done** | Window, scaling, presentation, keyboard and mouse |
-| Sound | **Stub** | UART handshake only — no 68000, no MultiPCM, no audio |
+| Sound | **Partial** | The Model 2A board: a 68000 (Musashi) and an SCSP ported from MAME, fed over the UART, 44.1 kHz stereo to the platform. The original board's MultiPCM is not modelled |
 | Copro data ROM | **Done** | The coprocessor's external data socket, masked to the region size in dwords. Empty on Virtua Cop; Daytona USA puts 4 MB of collision and height data there |
 | Model 2A / 2B / 2C | **Partial** | The variant picks the memory map: 256 KB of program RAM, the Sega 315-5649 I/O chip with its serial EEPROM, the CRX texture and luma RAM windows, and 2B's relocated serial port. 2B still needs an ADSP-21062 SHARC and 2C an MB86235 for the math coprocessor, so neither can do 3D — but both can and do reach attract mode on tilemaps |
 
@@ -440,8 +440,9 @@ the table records what happened on a machine that had the sets.
 
 The gaps are well defined, and none of them need permission to start:
 
-- **Sound.** `src/sound.c` is a UART handshake and nothing else. A 68000 core
-  plus MultiPCM would make this the first Model 2 recomp with audio.
+- **Sound on the original board.** The 2A board (68000 + SCSP) plays; the
+  original board's MultiPCM does not exist yet, so Virtua Cop and Daytona USA
+  still run silent.
 - **The I/O board EEPROM.** Buttons work; the 93C46 holding coinage and game
   settings does not exist. Virtua Cop defaults to free play without it, which
   is convenient and not correct.
