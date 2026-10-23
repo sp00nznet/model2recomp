@@ -39,4 +39,10 @@ uint32_t copro_fifo_read(void);
 bool     copro_output_empty(void);           /* 0x00980004 */
 uint32_t copro_status_read(void);            /* 0x00980014 */
 
+/* True while the input FIFO holds commands the DSP has not consumed yet. A
+ * diagnostic for the bus: an i960 access to buffer RAM at such a moment is
+ * one the real DSP, which eats its input within microseconds, would have
+ * ordered differently. */
+bool     copro_input_pending(void);
+
 #endif /* MODEL2RECOMP_COPRO_H */

@@ -968,10 +968,33 @@ uint32_t copro_ctl_read(void)
     return s_ctl;
 }
 
+/* MODEL2_COPRO_LAZY=1 restores the on-demand model, where the DSP runs only
+ * when the game reads its output. The default runs it as soon as the game
+ * feeds it, which is what the 50 MHz part does with an 8-word FIFO in front
+ * of it: by the time the i960 has pushed a command and moved on, the DSP has
+ * read that command's operands out of buffer RAM. Running it late lets the
+ * game overwrite those operands first. */
+static int s_lazy = -1;
+static void copro_fed(void)
+{
+    if (s_lazy < 0) { const char *e = getenv("MODEL2_COPRO_LAZY"); s_lazy = e && atoi(e) ? 1 : 0; }
+    if (!s_lazy && s_booted && s_have_mb86233) {
+        s_starved = false;
+        copro_execute(2000000);
+        if (s_icount <= 0) fprintf(stderr, "[copro] budget exhausted at pc=%04X\n", s_ppc);
+    }
+}
+
+bool copro_input_pending(void)
+{
+    return s_booted && s_in_head != s_in_tail;
+}
+
 void copro_function_write(uint32_t offset, uint32_t data)
 {
     uint32_t a = (offset >> 2) & 0xFF;
     fifo_push(s_in, &s_in_head, s_in_tail, (data & 0x800FFFFF) | (a << 23));
+    copro_fed();
 }
 
 void copro_fifo_write(uint32_t data)
@@ -983,6 +1006,7 @@ void copro_fifo_write(uint32_t data)
         return;
     }
     fifo_push(s_in, &s_in_head, s_in_tail, data);
+    copro_fed();
 }
 
 uint32_t copro_fifo_read(void)
