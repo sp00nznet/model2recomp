@@ -135,6 +135,9 @@ void i960_do_call(uint32_t target_addr, uint32_t return_addr);
  */
 void i960_do_ret(void);
 
+/* Reports an instruction the lifter skipped, once per site (see i960.c). */
+void i960_todo(uint32_t addr, uint32_t word);
+
 /*
  * Reset CPU to power-on state.
  */

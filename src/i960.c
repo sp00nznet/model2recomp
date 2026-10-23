@@ -130,3 +130,20 @@ void i960_do_ret(void)
     g_i960.IP = I960_RIP;
 }
 
+
+/*
+ * An instruction the lifter could not lift is a comment in the generated C -
+ * and a comment executes as nothing, which is wrong silently. The lifter now
+ * emits a call here beside it, so a skipped instruction on a live path is
+ * reported (once per site) instead of being guessed at from the symptoms.
+ */
+void i960_todo(uint32_t addr, uint32_t word)
+{
+    static uint32_t seen[256];
+    static int n;
+    for (int i = 0; i < n; i++)
+        if (seen[i] == addr) return;
+    if (n < 256) seen[n++] = addr;
+    fprintf(stderr, "[i960] UNLIFTED instruction executed at 0x%08X: word %08X (opcode %02X ext %X)\n",
+            addr, word, word >> 24, (word >> 7) & 0xF);
+}
