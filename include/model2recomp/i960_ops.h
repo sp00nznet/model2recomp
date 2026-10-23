@@ -340,8 +340,11 @@ static inline uint32_t op_clrbit(uint32_t bitnum, uint32_t src)
 
 static inline void op_chkbit(uint32_t bitnum, uint32_t src)
 {
+    /* The manual and MAME agree: bit set leaves CC = 010, bit clear leaves
+     * CC = 000 - which is what bno tests. It used to leave "less", so a
+     * bno after a chkbit never saw a clear bit. */
     if (src & (1u << (bitnum & 31)))
-        I960_CC_SET(I960_AC_CC_EQ); /* bit set = "equal" condition */
+        I960_CC_SET(I960_AC_CC_EQ);
     else
         I960_CC_SET(I960_AC_CC_UN); /* bit clear = 000 (MAME i960.cpp; m2-hle2
                                      * i960.md: LT inverts chkbit + bno/bo) */
@@ -417,6 +420,8 @@ static inline double i960_round(double d)
 /* ---- Test/Fault (conditional on AC) ---- */
 
 /* TEST: set register based on condition */
+/* bno/bo: no condition bit set at all (unordered, or bit clear after chkbit). */
+static inline int i960_test_cc_none(void) { return (g_i960.AC & 7) == 0; }
 static inline uint32_t op_teste(void)  { return i960_test_cc(COND_E)  ? 1 : 0; }
 static inline uint32_t op_testne(void) { return i960_test_cc(COND_NE) ? 1 : 0; }
 static inline uint32_t op_testl(void)  { return i960_test_cc(COND_L)  ? 1 : 0; }

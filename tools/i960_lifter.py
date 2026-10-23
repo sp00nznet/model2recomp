@@ -359,7 +359,13 @@ class I960Lifter:
                 lines.append(f'I960_G(14) = g_bal_link = 0x{addr+4:08X}; /* bal 0x{target:08X} */')
                 lines.append(f'goto L_{target:08X}; /* bal */')
             elif opcode == 0x10:  # bno
-                lines.append(f'/* bno 0x{target:08X} - branch if unordered (NaN) */')
+                # Branch if no condition bit is set. That is "unordered" after
+                # a real compare, but it is also "bit clear" after chkbit and
+                # the compiler leans on it: Virtua Cop 2's camera height
+                # (0x3B34C) tests a sign bit with chkbit/bno, and with the
+                # branch dropped the value doubled every frame until it was
+                # infinite and every matrix built from it was NaN.
+                lines.append(f'if (i960_test_cc_none()) goto L_{target:08X}; /* bno */')
             elif opcode == 0x11:  # bg
                 lines.append(f'if (i960_test_cc(COND_G)) goto L_{target:08X}; /* bg */')
             elif opcode == 0x12:  # be
@@ -373,7 +379,7 @@ class I960Lifter:
             elif opcode == 0x16:  # ble
                 lines.append(f'if (i960_test_cc(COND_LE)) goto L_{target:08X}; /* ble */')
             elif opcode == 0x17:  # bo
-                lines.append(f'/* bo 0x{target:08X} - branch if ordered */')
+                lines.append(f'if (!i960_test_cc_none()) goto L_{target:08X}; /* bo */')
             else:
                 lines.append(f'/* TODO: ctrl opcode 0x{opcode:02X} target 0x{target:08X} */')
             return lines, ret_size
@@ -589,10 +595,13 @@ class I960Lifter:
                 lines.append('if (bus_iac_reinit_pending()) return;')
 
             # ---- 0x64: spanbit, scanbit, modac ----
+            # spanbit/scanbit leave CC = 010 when a bit was found and 000
+            # when none was, as MAME's core does; the branch after them
+            # reads it.
             elif key == (0x64, 0x00):
-                lines.append(f'{{ uint32_t _v = {src1}; {dst} = 0xFFFFFFFF; for (int _i = 31; _i >= 0; _i--) {{ if (!(_v & (1u << _i))) {{ {dst} = _i; break; }} }} }} /* spanbit */')
+                lines.append(f'{{ uint32_t _v = {src1}; {dst} = 0xFFFFFFFF; I960_CC_SET(I960_AC_CC_UN); for (int _i = 31; _i >= 0; _i--) {{ if (!(_v & (1u << _i))) {{ {dst} = _i; I960_CC_SET(I960_AC_CC_EQ); break; }} }} }} /* spanbit */')
             elif key == (0x64, 0x01):
-                lines.append(f'{{ uint32_t _v = {src1}; {dst} = 0xFFFFFFFF; for (int _i = 31; _i >= 0; _i--) {{ if (_v & (1u << _i)) {{ {dst} = _i; break; }} }} }} /* scanbit */')
+                lines.append(f'{{ uint32_t _v = {src1}; {dst} = 0xFFFFFFFF; I960_CC_SET(I960_AC_CC_UN); for (int _i = 31; _i >= 0; _i--) {{ if (_v & (1u << _i)) {{ {dst} = _i; I960_CC_SET(I960_AC_CC_EQ); break; }} }} }} /* scanbit */')
             elif key == (0x64, 0x05):
                 lines.append(f'{dst} = g_i960.AC; g_i960.AC = (g_i960.AC & ~{src1}) | ({src2} & {src1}); /* modac */')
 
